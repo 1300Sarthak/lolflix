@@ -14,7 +14,7 @@ import { isInWatchlist, toggleWatchlist, toWatchlistItemFromTMDB } from "@/lib/w
 import { hideTitle, isHidden } from "@/lib/not-interested"
 import { getShelves, addToShelf, type ShelfItem } from "@/lib/shelves"
 import { useToast } from "@/components/Toast"
-import type { TMDBMedia, TMDBMovie, TMDBShow, TMDBMovieDetails, TMDBShowDetails, TMDBPerson, TMDBCollection } from "@/types"
+import type { TMDBMedia, TMDBMovie, TMDBShow, TMDBMovieDetails, TMDBShowDetails, TMDBPerson, TMDBCollection, TMDBSeason, TMDBEpisode } from "@/types"
 
 function isShow(item: TMDBMedia): item is TMDBShow {
   return "name" in item
@@ -44,7 +44,10 @@ export function DetailModal({ item, mediaType, onClose }: DetailModalProps) {
   const [showShelves, setShowShelves] = useState(false)
   const [collection, setCollection] = useState<TMDBCollection | null>(null)
   const [personCredits, setPersonCredits] = useState<{ name: string; movies: TMDBMedia[] } | null>(null)
-  const [isMuted, setIsMuted] = useState(true) // Added state for mute functionality
+  const [isMuted, setIsMuted] = useState(true)
+  const [selectedSeason, setSelectedSeason] = useState<number | null>(null)
+  const [selectedEpisode, setSelectedEpisode] = useState<number | null>(null)
+  const [seasonDetails, setSeasonDetails] = useState<TMDBSeason | null>(null) // Added state for mute functionality
 
   const title = item ? (isMovie(item) ? item.title : isShow(item) ? item.name : "") : ""
   const tmdbId = item?.id || 0
@@ -71,6 +74,11 @@ export function DetailModal({ item, mediaType, onClose }: DetailModalProps) {
           : await tmdb.getShowDetails(item.id)
         setDetails(data)
 
+        if (mediaType === "tv" && (data as TMDBShowDetails).seasons?.length > 0) {
+          const firstSeason = (data as TMDBShowDetails).seasons.find(s => s.season_number === 1) || (data as TMDBShowDetails).seasons[0]
+          setSelectedSeason(firstSeason.season_number)
+        }
+
         if (mediaType === "movie" && (data as TMDBMovieDetails).belongs_to_collection) {
           try {
             const col = await tmdb.getCollection((data as TMDBMovieDetails).belongs_to_collection!.id)
@@ -86,9 +94,43 @@ export function DetailModal({ item, mediaType, onClose }: DetailModalProps) {
     fetchDetails()
   }, [item, mediaType])
 
+  useEffect(() => {
+    if (mediaType === "tv" && item && selectedSeason !== null) {
+      let isCancelled = false
+      const fetchSeason = async () => {
+        try {
+          const data = await tmdb.getSeason(item.id, selectedSeason)
+          if (!isCancelled) {
+            setSeasonDetails(data)
+            if (data.episodes?.length > 0) {
+              setSelectedEpisode(data.episodes[0].episode_number)
+            } else {
+              setSelectedEpisode(null)
+            }
+          }
+        } catch (err) {
+          console.error("Failed to load season details", err)
+          if (!isCancelled) {
+            setSeasonDetails(null)
+            setSelectedEpisode(null)
+          }
+        }
+      }
+      fetchSeason()
+      return () => { isCancelled = true }
+    } else {
+      setSeasonDetails(null)
+      setSelectedEpisode(null)
+    }
+  }, [item, mediaType, selectedSeason])
+
   const handlePlay = () => {
     if (!item) return
-    router.push(`/watch/new?tmdb=${item.id}&type=${mediaType}`)
+    let url = `/watch/new?tmdb=${item.id}&type=${mediaType}`
+    if (mediaType === "tv" && selectedSeason !== null && selectedEpisode !== null) {
+      url += `&season=${selectedSeason}&episode=${selectedEpisode}`
+    }
+    router.push(url)
     onClose()
   }
 
@@ -231,6 +273,57 @@ export function DetailModal({ item, mediaType, onClose }: DetailModalProps) {
           </div>
 
           <div className="p-6 space-y-6">
+            {mediaType === "tv" && details && (details as TMDBShowDetails).seasons?.length > 0 && (
+              <div className="space-y-4">
+                <div className="flex items-center gap-4">
+                  <div className="relative">
+                    <select
+                      value={selectedSeason || ""}
+                      onChange={(e) => setSelectedSeason(Number(e.target.value))}
+                      className="appearance-none bg-[#2a2a2a] text-white px-4 py-2 rounded-md pr-8 cursor-pointer focus:outline-none focus:ring-2 focus:ring-white/30"
+                    >
+                      {(details as TMDBShowDetails).seasons.map((s) => (
+                        <option key={s.id} value={s.season_number}>
+                          {s.name}
+                        </option>
+                      ))}
+                    </select>
+                    <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 h-4 w-4 text-white pointer-events-none" />
+                  </div>
+                </div>
+
+                {seasonDetails && seasonDetails.episodes && seasonDetails.episodes.length > 0 && (
+                  <div className="space-y-3">
+                    {seasonDetails.episodes.map((episode) => (
+                      <motion.div
+                        key={episode.id}
+                        initial={{ opacity: 0, y: 20 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={{ duration: 0.3 }}
+                        className={`flex items-center gap-4 p-3 rounded-lg cursor-pointer transition-colors ${selectedEpisode === episode.episode_number ? "bg-white/10" : "hover:bg-white/5"}`}
+                        onClick={() => setSelectedEpisode(episode.episode_number)}
+                      >
+                        <span className="text-lg font-bold w-8 text-center">{episode.episode_number}</span>
+                        <div className="flex-1">
+                          <h3 className="font-semibold text-white">{episode.name}</h3>
+                          <p className="text-sm text-white/70 line-clamp-2">{episode.overview}</p>
+                        </div>
+                        {episode.still_path && (
+                          <Image
+                            src={tmdb.imageUrl(episode.still_path, "w185")!}
+                            alt={episode.name}
+                            width={120}
+                            height={67}
+                            className="rounded-md object-cover"
+                          />
+                        )}
+                      </motion.div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
             <div className="flex items-center gap-3 flex-wrap text-sm">
               {rating && Number(rating) > 0 && <span className="text-green-400 font-semibold">{rating}</span>}
               {year && <span className="text-white/60">{year}</span>}
