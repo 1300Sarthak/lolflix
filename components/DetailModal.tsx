@@ -6,7 +6,7 @@ import Image from "next/image"
 import { motion, AnimatePresence } from "framer-motion"
 import {
   X, Play, Plus, Check, Star, Eye, EyeOff, Ban,
-  ChevronDown, FolderPlus, Clock, Tag,
+  ChevronDown, FolderPlus, Clock, Tag, Volume2, VolumeX,
 } from "lucide-react"
 import { tmdb } from "@/lib/tmdb"
 import { getRating, setRating as saveRating, setNote, setRewatchTag, setWatchedStatus, isWatched as isItemWatched, type RewatchTag } from "@/lib/ratings"
@@ -44,6 +44,7 @@ export function DetailModal({ item, mediaType, onClose }: DetailModalProps) {
   const [showShelves, setShowShelves] = useState(false)
   const [collection, setCollection] = useState<TMDBCollection | null>(null)
   const [personCredits, setPersonCredits] = useState<{ name: string; movies: TMDBMedia[] } | null>(null)
+  const [isMuted, setIsMuted] = useState(true) // Added state for mute functionality
 
   const title = item ? (isMovie(item) ? item.title : isShow(item) ? item.name : "") : ""
   const tmdbId = item?.id || 0
@@ -147,6 +148,10 @@ export function DetailModal({ item, mediaType, onClose }: DetailModalProps) {
     } catch {}
   }, [])
 
+  const toggleMute = () => {
+    setIsMuted((prev) => !prev)
+  }
+
   const trailer = details?.videos?.results?.find((v) => v.type === "Trailer" && v.site === "YouTube")
   const runtime = details && "runtime" in details ? (details as TMDBMovieDetails).runtime : (details as TMDBShowDetails)?.episode_run_time?.[0]
   const genres = details?.genres || []
@@ -187,13 +192,24 @@ export function DetailModal({ item, mediaType, onClose }: DetailModalProps) {
 
           <div className="relative w-full aspect-video bg-black">
             {trailer ? (
-              <iframe
-                src={`https://www.youtube.com/embed/${trailer.key}?autoplay=1&mute=0&controls=0&modestbranding=1`}
-                className="w-full h-full"
-                allow="autoplay; encrypted-media"
-                allowFullScreen
-                title="Trailer"
-              />
+              <>
+                <iframe
+                  src={`https://www.youtube.com/embed/${trailer.key}?autoplay=1&mute=${isMuted ? 1 : 0}&controls=0&modestbranding=1`}
+                  className="w-full h-full"
+                  allow="autoplay; encrypted-media"
+                  allowFullScreen
+                  title="Trailer"
+                />
+                <div className="absolute bottom-4 right-6 z-10">
+                  <button
+                    onClick={toggleMute}
+                    className="p-2 border-2 border-white/40 rounded-full text-white/60 hover:text-white hover:border-white transition-all cursor-pointer"
+                    aria-label={isMuted ? "Unmute" : "Mute"}
+                  >
+                    {isMuted ? <VolumeX className="h-5 w-5" /> : <Volume2 className="h-5 w-5" />}
+                  </button>
+                </div>
+              </>
             ) : item.backdrop_path ? (
               <Image src={tmdb.backdropUrl(item.backdrop_path)!} alt={title} fill className="object-cover" sizes="100vw" />
             ) : null}
