@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useEffect } from "react"
-import { Settings, Users, Zap, Gauge, Palette, Monitor, LayoutGrid } from "lucide-react"
+import { Settings, Users, Zap, Gauge, Palette, Monitor, LayoutGrid, RefreshCw } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import {
   DropdownMenu,
@@ -155,6 +155,26 @@ export function SettingsDropdown({ onChange }: SettingsDropdownProps) {
             ))}
           </div>
         </div>
+
+        <label className="flex items-center justify-between cursor-pointer">
+          <span className="flex items-center gap-2 text-sm text-white">
+            <RefreshCw className="h-4 w-4 text-white/50" />
+            Auto Source Switch
+          </span>
+          <button
+            role="switch"
+            aria-checked={settings.autoSourceSwitch}
+            onClick={() => update({ autoSourceSwitch: !settings.autoSourceSwitch })}
+            className={`relative inline-flex h-5 w-9 shrink-0 rounded-full transition-colors duration-200 cursor-pointer ${
+              settings.autoSourceSwitch ? "bg-[#E50914]" : "bg-white/20"
+            }`}
+          >
+            <span className={`pointer-events-none inline-block h-4 w-4 rounded-full bg-white shadow-sm transform transition-transform duration-200 mt-0.5 ${settings.autoSourceSwitch ? "translate-x-4 ml-0.5" : "translate-x-0.5"}`} />
+          </button>
+        </label>
+        <p className="text-[11px] text-white/40 leading-snug">
+          Auto-switch to backup source if player doesn&apos;t load in 15s.
+        </p>
 
         <DropdownMenuSeparator className="bg-white/10" />
 

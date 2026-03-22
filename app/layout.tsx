@@ -5,6 +5,7 @@ import { SchemeProvider } from "@/components/SchemeProvider"
 import { IntroAnimation } from "@/components/IntroAnimation"
 import { TooltipProvider } from "@/components/ui/tooltip"
 import { ToastProvider } from "@/components/Toast"
+import { TVModeProvider } from "@/contexts/TVModeContext"
 import "./globals.css"
 
 const inter = Inter({ subsets: ["latin"], variable: "--font-inter" })
@@ -31,9 +32,11 @@ export default function RootLayout({
           <SchemeProvider>
             <TooltipProvider>
               <ToastProvider>
-                <IntroAnimation>
-                  {children}
-                </IntroAnimation>
+                <TVModeProvider>
+                  <IntroAnimation>
+                    {children}
+                  </IntroAnimation>
+                </TVModeProvider>
               </ToastProvider>
             </TooltipProvider>
           </SchemeProvider>

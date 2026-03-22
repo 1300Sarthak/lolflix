@@ -154,6 +154,7 @@ export interface TMDBMovieDetails extends TMDBMovie {
 export interface TMDBShowDetails extends TMDBShow {
   episode_run_time: number[]
   genres: TMDBGenre[]
+  seasons?: TMDBSeason[]
   credits: TMDBCredits
   videos: { results: TMDBVideo[] }
   similar: { results: TMDBMedia[] }
@@ -184,4 +185,6 @@ export interface DiscoverParams {
   voteCountLte?: number
   language?: string
   page?: number
+  primaryReleaseDateGte?: string
+  firstAirDateGte?: string
 }

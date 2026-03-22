@@ -1,6 +1,8 @@
 "use client"
 
+import { motion } from "framer-motion"
 import { MediaPosterCard } from "@/components/MediaPosterCard"
+import { useTVMode } from "@/contexts/TVModeContext"
 import type { TMDBMedia } from "@/types"
 import type { CardLayout } from "@/lib/settings"
 
@@ -19,7 +21,6 @@ const LAYOUT_TO_GAP: Record<CardLayout, string> = {
 export function MediaRail({
   title,
   items,
-  mediaType,
   size,
   cardLayout,
   emptyMessage,
@@ -28,13 +29,13 @@ export function MediaRail({
 }: {
   title: string
   items: TMDBMedia[]
-  mediaType: "movie" | "tv"
   size?: "sm" | "md" | "lg" | "cinematic"
   cardLayout?: CardLayout
   emptyMessage?: string
   isLoading?: boolean
   onDetailOpen?: (item: TMDBMedia, mediaType: "movie" | "tv") => void
 }) {
+  const { isTVMode } = useTVMode()
   const resolvedSize = size || (cardLayout ? LAYOUT_TO_SIZE[cardLayout] : "md")
   const gapClass = cardLayout ? LAYOUT_TO_GAP[cardLayout] : "gap-1 md:gap-1.5"
 
@@ -46,7 +47,7 @@ export function MediaRail({
         </div>
         <div className={`flex ${gapClass} px-4 md:px-12`}>
           {Array.from({ length: 8 }).map((_, i) => (
-            <div key={i} className="shrink-0 w-32 sm:w-36 aspect-[2/3] rounded bg-white/5 animate-pulse" />
+            <div key={i} className="shrink-0 w-32 sm:w-36 aspect-[2/3] rounded bg-white/5 shimmer" />
           ))}
         </div>
       </section>
@@ -64,24 +65,33 @@ export function MediaRail({
   }
 
   return (
-    <section className="space-y-1">
+    <motion.section
+      initial={{ opacity: 0, y: 20 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.4, ease: "easeOut" }}
+      className="space-y-1"
+    >
       <div className="px-4 md:px-12">
-        <h2 className="text-base md:text-lg font-bold text-[#e5e5e5] hover:text-white transition-colors cursor-default">
+        <h2 className={`text-base md:text-lg font-bold text-[#e5e5e5] hover:text-white transition-colors cursor-default ${isTVMode ? "tv-text-lg" : ""}`}>
           {title}
         </h2>
       </div>
-      <div className={`flex ${gapClass} overflow-x-auto pb-4 px-4 md:px-12 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden`}>
+      <div className={`px-4 md:px-12 ${
+        isTVMode
+          ? "tv-grid"
+          : `flex ${gapClass} overflow-x-auto pb-4 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden`
+      }`}>
         {items.map((item, idx) => (
           <MediaPosterCard
-            key={`${mediaType}-${item.id}`}
+            key={`${item.media_type}-${item.id}`}
             item={item}
-            mediaType={mediaType}
+            mediaType={item.media_type || "movie"}
             index={idx}
             size={resolvedSize}
             onDetailOpen={onDetailOpen}
           />
         ))}
       </div>
-    </section>
+    </motion.section>
   )
 }

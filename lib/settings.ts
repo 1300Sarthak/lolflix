@@ -12,6 +12,7 @@ export interface AppSettings {
   themeMode: ThemeMode
   cardLayout: CardLayout
   theaterMode: boolean
+  autoSourceSwitch: boolean
 }
 
 const DEFAULTS: AppSettings = {
@@ -22,6 +23,7 @@ const DEFAULTS: AppSettings = {
   themeMode: "dark",
   cardLayout: "comfortable",
   theaterMode: false,
+  autoSourceSwitch: false,
 }
 
 const STORAGE_KEY = "pplnetflix_settings"

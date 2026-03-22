@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(find:*)",
+      "Bash(npm run build:*)",
+      "Bash(npx next:*)",
+      "Bash(grep -n \"searchParams.get\" /Users/sarthak/projects/adfreetv/app/watch/[roomId]/page.tsx)"
+    ]
+  }
+}

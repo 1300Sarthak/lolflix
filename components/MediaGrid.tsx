@@ -45,7 +45,7 @@ export function MediaGrid({ items, mediaType, isLoading }: MediaGridProps) {
   return (
     <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4">
       {items.map((item, i) => (
-        <MediaCard key={item.id} item={item} mediaType={mediaType} index={i} />
+        <MediaCard key={item.id} item={item} mediaType={item.media_type || mediaType} index={i} />
       ))}
     </div>
   )
