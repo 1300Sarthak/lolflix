@@ -33,7 +33,7 @@ export function JoinRoomDialog({ trigger }: JoinRoomDialogProps = {}) {
     const name = userName.trim() || `User${Math.floor(Math.random() * 9999)}`
     localStorage.setItem("streamparty_username", name)
     setOpen(false)
-    router.push(`/watch/${roomCode.trim()}`)
+    router.push(`/watch?room=${roomCode.trim()}`)
   }
 
   const defaultTrigger = (

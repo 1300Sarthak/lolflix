@@ -46,7 +46,7 @@ export function ChatSidebar({
   }
 
   const handleCopy = async () => {
-    const url = `${process.env.NEXT_PUBLIC_APP_URL}/watch/${roomCode}`
+    const url = `${process.env.NEXT_PUBLIC_APP_URL}/watch?room=${roomCode}`
     await navigator.clipboard.writeText(url)
     setCopied(true)
     setTimeout(() => setCopied(false), 2000)
