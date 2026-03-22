@@ -28,8 +28,8 @@ export default function WatchRoomPage() {
   const roomId = params.roomId as string
   const urlTmdbId = Number(searchParams.get("tmdb") || 0)
   const urlMediaType = (searchParams.get("type") || "movie") as "movie" | "tv"
-  const initialSeason = Number(searchParams.get("s") || 1)
-  const initialEpisode = Number(searchParams.get("e") || 1)
+  const initialSeason = Number(searchParams.get("season") || searchParams.get("s") || 1)
+  const initialEpisode = Number(searchParams.get("episode") || searchParams.get("e") || 1)
 
   const [userName, setUserName] = useState("")
   const [users, setUsers] = useState<RoomUser[]>([])

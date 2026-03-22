@@ -186,12 +186,12 @@ export const tmdb = {
     ),
 
   movieVideos: (id: number) =>
-    fetchJSON<{ results: { key: string; type: string; official: boolean }[] }>(
+    fetchJSON<{ results: { key: string; type: string; site: string; official: boolean }[] }>(
       `${BASE}/movie/${id}/videos?api_key=${KEY}`
     ),
 
   tvVideos: (id: number) =>
-    fetchJSON<{ results: { key: string; type: string; official: boolean }[] }>(
+    fetchJSON<{ results: { key: string; type: string; site: string; official: boolean }[] }>(
       `${BASE}/tv/${id}/videos?api_key=${KEY}`
     ),
 

@@ -6,15 +6,16 @@ import Image from "next/image"
 import { motion, AnimatePresence } from "framer-motion"
 import {
   X, Play, Plus, Check, Star, Eye, EyeOff, Ban,
-  ChevronDown, FolderPlus, Clock, Tag, Volume2, VolumeX,
+  ChevronDown, FolderPlus, Clock, Tag, Volume2, VolumeX, RotateCcw,
 } from "lucide-react"
 import { tmdb } from "@/lib/tmdb"
 import { getRating, setRating as saveRating, setNote, setRewatchTag, setWatchedStatus, isWatched as isItemWatched, type RewatchTag } from "@/lib/ratings"
+import { getProgress } from "@/lib/history"
 import { isInWatchlist, toggleWatchlist, toWatchlistItemFromTMDB } from "@/lib/watchlist"
 import { hideTitle, isHidden } from "@/lib/not-interested"
 import { getShelves, addToShelf, type ShelfItem } from "@/lib/shelves"
 import { useToast } from "@/components/Toast"
-import type { TMDBMedia, TMDBMovie, TMDBShow, TMDBMovieDetails, TMDBShowDetails, TMDBPerson, TMDBCollection, TMDBSeason, TMDBEpisode } from "@/types"
+import type { TMDBMedia, TMDBMovie, TMDBShow, TMDBMovieDetails, TMDBShowDetails, TMDBPerson, TMDBCollection, TMDBSeason } from "@/types"
 
 function isShow(item: TMDBMedia): item is TMDBShow {
   return "name" in item
@@ -47,7 +48,8 @@ export function DetailModal({ item, mediaType, onClose }: DetailModalProps) {
   const [isMuted, setIsMuted] = useState(true)
   const [selectedSeason, setSelectedSeason] = useState<number | null>(null)
   const [selectedEpisode, setSelectedEpisode] = useState<number | null>(null)
-  const [seasonDetails, setSeasonDetails] = useState<TMDBSeason | null>(null) // Added state for mute functionality
+  const [seasonDetails, setSeasonDetails] = useState<TMDBSeason | null>(null)
+  const [savedProgress, setSavedProgress] = useState<{ season?: number; episode?: number; currentTime: number } | null>(null)
 
   const title = item ? (isMovie(item) ? item.title : isShow(item) ? item.name : "") : ""
   const tmdbId = item?.id || 0
@@ -67,6 +69,15 @@ export function DetailModal({ item, mediaType, onClose }: DetailModalProps) {
     setInList(isInWatchlist(item.id, mediaType))
     setHidden(isHidden(item.id, mediaType))
 
+    // Check for saved watch progress
+    const allProgress = getProgress()
+    const progress = allProgress.find(p => p.tmdbId === item.id && p.mediaType === mediaType)
+    if (progress && progress.currentTime > 0) {
+      setSavedProgress({ season: progress.season, episode: progress.episode, currentTime: progress.currentTime })
+    } else {
+      setSavedProgress(null)
+    }
+
     const fetchDetails = async () => {
       try {
         const data = mediaType === "movie"
@@ -74,8 +85,9 @@ export function DetailModal({ item, mediaType, onClose }: DetailModalProps) {
           : await tmdb.getShowDetails(item.id)
         setDetails(data)
 
-        if (mediaType === "tv" && (data as TMDBShowDetails).seasons?.length > 0) {
-          const firstSeason = (data as TMDBShowDetails).seasons.find(s => s.season_number === 1) || (data as TMDBShowDetails).seasons[0]
+        if (mediaType === "tv" && ((data as TMDBShowDetails).seasons?.length ?? 0) > 0) {
+          const seasons = (data as TMDBShowDetails).seasons!
+          const firstSeason = seasons.find(s => s.season_number === 1) || seasons[0]
           setSelectedSeason(firstSeason.season_number)
         }
 
@@ -102,8 +114,8 @@ export function DetailModal({ item, mediaType, onClose }: DetailModalProps) {
           const data = await tmdb.getSeason(item.id, selectedSeason)
           if (!isCancelled) {
             setSeasonDetails(data)
-            if (data.episodes?.length > 0) {
-              setSelectedEpisode(data.episodes[0].episode_number)
+            if ((data.episodes?.length ?? 0) > 0) {
+              setSelectedEpisode(data.episodes![0].episode_number)
             } else {
               setSelectedEpisode(null)
             }
@@ -129,6 +141,26 @@ export function DetailModal({ item, mediaType, onClose }: DetailModalProps) {
     let url = `/watch/new?tmdb=${item.id}&type=${mediaType}`
     if (mediaType === "tv" && selectedSeason !== null && selectedEpisode !== null) {
       url += `&season=${selectedSeason}&episode=${selectedEpisode}`
+    }
+    router.push(url)
+    onClose()
+  }
+
+  const handleContinue = () => {
+    if (!item || !savedProgress) return
+    let url = `/watch/new?tmdb=${item.id}&type=${mediaType}`
+    if (mediaType === "tv" && savedProgress.season && savedProgress.episode) {
+      url += `&season=${savedProgress.season}&episode=${savedProgress.episode}`
+    }
+    router.push(url)
+    onClose()
+  }
+
+  const handleRestart = () => {
+    if (!item) return
+    let url = `/watch/new?tmdb=${item.id}&type=${mediaType}`
+    if (mediaType === "tv") {
+      url += `&season=1&episode=1`
     }
     router.push(url)
     onClose()
@@ -221,10 +253,10 @@ export function DetailModal({ item, mediaType, onClose }: DetailModalProps) {
         onClick={onClose}
       >
         <motion.div
-          initial={{ opacity: 0, y: 40 }}
-          animate={{ opacity: 1, y: 0 }}
-          exit={{ opacity: 0, y: 40 }}
-          transition={{ duration: 0.3 }}
+          initial={{ opacity: 0, scale: 0.9, y: 60 }}
+          animate={{ opacity: 1, scale: 1, y: 0 }}
+          exit={{ opacity: 0, scale: 0.95, y: 40 }}
+          transition={{ duration: 0.4, ease: [0.25, 0.1, 0.25, 1] }}
           className="relative max-w-3xl mx-auto mt-8 mb-16 bg-[#181818] rounded-lg overflow-hidden shadow-2xl"
           onClick={(e) => e.stopPropagation()}
         >
@@ -257,9 +289,23 @@ export function DetailModal({ item, mediaType, onClose }: DetailModalProps) {
             ) : null}
             <div className="absolute bottom-0 left-0 right-0 h-32 bg-gradient-to-t from-[#181818] to-transparent" />
             <div className="absolute bottom-4 left-6 right-6 flex items-end gap-3">
-              <button onClick={handlePlay} className="flex items-center gap-2 bg-white text-black font-bold px-6 py-2 rounded cursor-pointer hover:bg-white/80 active:scale-[0.97] transition-all">
-                <Play className="h-5 w-5 fill-black" /> Play
-              </button>
+              {savedProgress ? (
+                <>
+                  <button onClick={handleContinue} className="flex items-center gap-2 bg-white text-black font-bold px-6 py-2 rounded cursor-pointer hover:bg-white/80 active:scale-[0.97] transition-all">
+                    <Play className="h-5 w-5 fill-black" />
+                    {mediaType === "tv" && savedProgress.season && savedProgress.episode
+                      ? `Continue S${savedProgress.season} E${savedProgress.episode}`
+                      : "Continue"}
+                  </button>
+                  <button onClick={handleRestart} className="flex items-center gap-2 bg-white/20 text-white font-semibold px-4 py-2 rounded cursor-pointer hover:bg-white/30 active:scale-[0.97] transition-all backdrop-blur-sm">
+                    <RotateCcw className="h-4 w-4" /> Restart
+                  </button>
+                </>
+              ) : (
+                <button onClick={handlePlay} className="flex items-center gap-2 bg-white text-black font-bold px-6 py-2 rounded cursor-pointer hover:bg-white/80 active:scale-[0.97] transition-all">
+                  <Play className="h-5 w-5 fill-black" /> Play
+                </button>
+              )}
               <button onClick={handleWatchlistToggle} className="p-2 rounded-full border border-white/40 text-white hover:border-white active:scale-[0.97] transition-all cursor-pointer">
                 {inList ? <Check className="h-5 w-5" /> : <Plus className="h-5 w-5" />}
               </button>
@@ -273,7 +319,7 @@ export function DetailModal({ item, mediaType, onClose }: DetailModalProps) {
           </div>
 
           <div className="p-6 space-y-6">
-            {mediaType === "tv" && details && (details as TMDBShowDetails).seasons?.length > 0 && (
+            {mediaType === "tv" && details && ((details as TMDBShowDetails).seasons?.length ?? 0) > 0 && (
               <div className="space-y-4">
                 <div className="flex items-center gap-4">
                   <div className="relative">
@@ -282,7 +328,7 @@ export function DetailModal({ item, mediaType, onClose }: DetailModalProps) {
                       onChange={(e) => setSelectedSeason(Number(e.target.value))}
                       className="appearance-none bg-[#2a2a2a] text-white px-4 py-2 rounded-md pr-8 cursor-pointer focus:outline-none focus:ring-2 focus:ring-white/30"
                     >
-                      {(details as TMDBShowDetails).seasons.map((s) => (
+                      {((details as TMDBShowDetails).seasons ?? []).map((s) => (
                         <option key={s.id} value={s.season_number}>
                           {s.name}
                         </option>
@@ -300,10 +346,18 @@ export function DetailModal({ item, mediaType, onClose }: DetailModalProps) {
                         initial={{ opacity: 0, y: 20 }}
                         animate={{ opacity: 1, y: 0 }}
                         transition={{ duration: 0.3 }}
-                        className={`flex items-center gap-4 p-3 rounded-lg cursor-pointer transition-colors ${selectedEpisode === episode.episode_number ? "bg-white/10" : "hover:bg-white/5"}`}
-                        onClick={() => setSelectedEpisode(episode.episode_number)}
+                        className={`flex items-center gap-4 p-3 rounded-lg cursor-pointer transition-colors group ${selectedEpisode === episode.episode_number ? "bg-white/10" : "hover:bg-white/5"}`}
+                        onClick={() => {
+                          if (!item) return
+                          const url = `/watch/new?tmdb=${item.id}&type=tv&season=${selectedSeason}&episode=${episode.episode_number}`
+                          router.push(url)
+                          onClose()
+                        }}
                       >
-                        <span className="text-lg font-bold w-8 text-center">{episode.episode_number}</span>
+                        <div className="relative w-8 flex items-center justify-center shrink-0">
+                          <span className="text-lg font-bold text-center group-hover:hidden">{episode.episode_number}</span>
+                          <Play className="h-5 w-5 fill-white hidden group-hover:block" />
+                        </div>
                         <div className="flex-1">
                           <h3 className="font-semibold text-white">{episode.name}</h3>
                           <p className="text-sm text-white/70 line-clamp-2">{episode.overview}</p>

@@ -26,12 +26,13 @@ import { loadSettings, type CardLayout } from "@/lib/settings"
 import { useToast } from "@/components/Toast"
 import type { TMDBMedia, TMDBGenre, DiscoverParams } from "@/types"
 
-const SORT_OPTIONS = [
-  { value: "popularity.desc", label: "Popularity" },
-  { value: "primary_release_date.desc", label: "Newest First" },
-  { value: "primary_release_date.asc", label: "Oldest First" },
-  { value: "vote_average.desc", label: "Highest Rated" },
-]
+// Reserved for future sorting functionality
+// const SORT_OPTIONS = [
+//   { value: "popularity.desc", label: "Popularity" },
+//   { value: "primary_release_date.desc", label: "Newest First" },
+//   { value: "primary_release_date.asc", label: "Oldest First" },
+//   { value: "vote_average.desc", label: "Highest Rated" },
+// ]
 
 export default function HomePage() {
   const { toast } = useToast()
@@ -41,19 +42,13 @@ export default function HomePage() {
   const [isLoading, setIsLoading] = useState(true)
   const debounceRef = useRef<NodeJS.Timeout | null>(null)
   const [cardLayout, setCardLayout] = useState<CardLayout>("comfortable")
+  const [homeMediaTypeFilter, setHomeMediaTypeFilter] = useState<"movie" | "tv" | "all">("all")
 
   // Genre state
   const [genres, setGenres] = useState<TMDBGenre[]>([])
   const [selectedGenre, setSelectedGenre] = useState<TMDBGenre | null>(null)
   const [genreOpen, setGenreOpen] = useState(false)
-  const [genreResults, setGenreResults] = useState<TMDBMedia[]>([])
-  const [genreLoading, setGenreLoading] = useState(false)
   const genreDropRef = useRef<HTMLDivElement>(null)
-
-  // Sort state
-  const [sortBy, setSortBy] = useState("popularity.desc")
-  const [sortOpen, setSortOpen] = useState(false)
-  const sortDropRef = useRef<HTMLDivElement>(null)
 
   // Rails state
   const [railsLoading, setRailsLoading] = useState(false)
@@ -81,6 +76,13 @@ export default function HomePage() {
   const [pinnedGenreRails, setPinnedGenreRails] = useState<{ genreId: number; name: string; items: TMDBMedia[] }[]>([])
   const [shelfRails, setShelfRails] = useState<{ id: string; name: string; items: TMDBMedia[] }[]>([])
 
+  // Genre-specific rails
+  const [genrePopular, setGenrePopular] = useState<TMDBMedia[]>([])
+  const [genreTopRated, setGenreTopRated] = useState<TMDBMedia[]>([])
+  const [genreNewReleases, setGenreNewReleases] = useState<TMDBMedia[]>([])
+  const [genreCriticallyAcclaimed, setGenreCriticallyAcclaimed] = useState<TMDBMedia[]>([])
+  const [genreLoading, setGenreLoading] = useState(false)
+
   // Mood section rails
   const [moodRails, setMoodRails] = useState<{ id: string; label: string; items: TMDBMedia[] }[]>([])
 
@@ -106,13 +108,12 @@ export default function HomePage() {
   useEffect(() => {
     function handleClickOutside(e: MouseEvent) {
       if (genreDropRef.current && !genreDropRef.current.contains(e.target as Node)) setGenreOpen(false)
-      if (sortDropRef.current && !sortDropRef.current.contains(e.target as Node)) setSortOpen(false)
     }
-    if (genreOpen || sortOpen) {
+    if (genreOpen) {
       document.addEventListener("mousedown", handleClickOutside)
       return () => document.removeEventListener("mousedown", handleClickOutside)
     }
-  }, [genreOpen, sortOpen])
+  }, [genreOpen])
 
   const openDetail = useCallback((item: TMDBMedia, type: "movie" | "tv") => {
     setDetailItem(item)
@@ -128,29 +129,66 @@ export default function HomePage() {
     finally { setIsLoading(false) }
   }, [])
 
-  const searchMedia = useCallback(async (q: string, type: "movie" | "tv") => {
-    if (!q.trim()) { fetchTrending(type); return }
+  const searchMedia = useCallback(async (q: string, type: "movie" | "tv" | "all") => {
+    if (!q.trim()) {
+      if (type === "all") {
+        setIsLoading(true)
+        try {
+          const [movies, tv] = await Promise.all([tmdb.trendingMovies(), tmdb.trendingTV()])
+          setResults([...movies.results, ...tv.results])
+        } catch { setResults([]) }
+        finally { setIsLoading(false) }
+      } else {
+        fetchTrending(type)
+      }
+      return
+    }
     setIsLoading(true)
     try {
-      const data = type === "movie" ? await tmdb.searchMovies(q) : await tmdb.searchTV(q)
-      setResults(data.results)
+      if (type === "all") {
+        const [movies, tv] = await Promise.all([tmdb.searchMovies(q), tmdb.searchTV(q)])
+        const merged = [...movies.results.map(m => ({ ...m, media_type: "movie" as const })), ...tv.results.map(t => ({ ...t, media_type: "tv" as const }))]
+        merged.sort((a, b) => (b.vote_average || 0) - (a.vote_average || 0))
+        setResults(merged)
+      } else {
+        const data = type === "movie" ? await tmdb.searchMovies(q) : await tmdb.searchTV(q)
+        setResults(data.results)
+      }
     } catch { setResults([]) }
     finally { setIsLoading(false) }
   }, [fetchTrending])
 
-  useEffect(() => { fetchTrending(mediaType) }, [mediaType, fetchTrending])
+  useEffect(() => {
+    if (!query.trim() && !selectedGenre) { // Only fetch trending if not searching and no genre selected
+      if (homeMediaTypeFilter === "all") {
+        const fetchAllTrending = async () => {
+          setIsLoading(true)
+          try {
+            const [movies, tv] = await Promise.all([tmdb.trendingMovies(), tmdb.trendingTV()])
+            setResults([...movies.results, ...tv.results])
+          } catch { setResults([]) }
+          finally { setIsLoading(false) }
+        }
+        fetchAllTrending()
+      } else {
+        fetchTrending(homeMediaTypeFilter)
+      }
+    }
+  }, [query, selectedGenre, homeMediaTypeFilter, fetchTrending])
 
   const handleQueryChange = (value: string) => {
     setQuery(value)
     if (debounceRef.current) clearTimeout(debounceRef.current)
-    debounceRef.current = setTimeout(() => searchMedia(value, mediaType), 300)
+    debounceRef.current = setTimeout(() => searchMedia(value, homeMediaTypeFilter), 300)
   }
 
   const handleTypeChange = (type: "movie" | "tv") => {
     setMediaType(type)
     setSelectedGenre(null)
-    setGenreResults([])
-    setSortBy("popularity.desc")
+    setGenrePopular([])
+    setGenreTopRated([])
+    setGenreNewReleases([])
+    setGenreCriticallyAcclaimed([])
     setAdvancedResults([])
     if (query.trim()) searchMedia(query, type)
   }
@@ -158,56 +196,121 @@ export default function HomePage() {
   const handleHomeClick = () => {
     setQuery("")
     setSelectedGenre(null)
-    setGenreResults([])
-    setSortBy("popularity.desc")
+    setGenrePopular([])
+    setGenreTopRated([])
+    setGenreNewReleases([])
+    setGenreCriticallyAcclaimed([])
     setAdvancedResults([])
     setAdvancedOpen(false)
-    setMediaType("movie")
+    // setMediaType("movie") // Removed to allow mixed content on home
   }
 
   // Fetch genres
   useEffect(() => {
     (async () => {
       try {
-        const data = mediaType === "movie" ? await tmdb.movieGenres() : await tmdb.tvGenres()
-        setGenres(data.genres)
+        const [movieGenresData, tvGenresData] = await Promise.all([
+          tmdb.movieGenres(),
+          tmdb.tvGenres(),
+        ])
+        const combinedGenres = [...movieGenresData.genres, ...tvGenresData.genres]
+        // Remove duplicates based on id
+        const uniqueGenres = Array.from(new Map(combinedGenres.map(genre => [genre.id, genre])).values())
+        setGenres(uniqueGenres.sort((a, b) => a.name.localeCompare(b.name)))
       } catch {}
     })()
-  }, [mediaType])
+  }, []) // Removed mediaType from dependencies
 
   // Fetch genre results
   useEffect(() => {
-    if (!selectedGenre) { setGenreResults([]); return }
+    if (!selectedGenre) {
+      setGenrePopular([]);
+      setGenreTopRated([]);
+      setGenreNewReleases([]);
+      setGenreCriticallyAcclaimed([]);
+      return;
+    }
     let cancelled = false
     ;(async () => {
       if (!selectedGenre) return
       setGenreLoading(true)
       try {
-        const data = mediaType === "movie"
-          ? await tmdb.discoverMoviesByGenre(selectedGenre.id, sortBy)
-          : await tmdb.discoverTVByGenre(selectedGenre.id, sortBy)
-        if (!cancelled) setGenreResults(data.results)
+        const [popularData, topRatedData, newReleaseData, criticallyAcclaimedData] = await Promise.all([
+          mediaType === "movie"
+            ? tmdb.discoverMovies({ genres: [selectedGenre.id], sortBy: "popularity.desc" })
+            : tmdb.discoverTV({ genres: [selectedGenre.id], sortBy: "popularity.desc" }),
+          mediaType === "movie"
+            ? tmdb.discoverMovies({ genres: [selectedGenre.id], sortBy: "vote_average.desc", voteCountGte: 100 })
+            : tmdb.discoverTV({ genres: [selectedGenre.id], sortBy: "vote_average.desc", voteCountGte: 100 }),
+          mediaType === "movie"
+            ? tmdb.discoverMovies({ genres: [selectedGenre.id], sortBy: "primary_release_date.desc", primaryReleaseDateGte: new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString().split('T')[0] })
+            : tmdb.discoverTV({ genres: [selectedGenre.id], sortBy: "first_air_date.desc", firstAirDateGte: new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString().split('T')[0] }),
+          mediaType === "movie"
+            ? tmdb.discoverMovies({ genres: [selectedGenre.id], sortBy: "vote_average.desc", voteAverageGte: 7.5, voteCountGte: 500 })
+            : tmdb.discoverTV({ genres: [selectedGenre.id], sortBy: "vote_average.desc", voteAverageGte: 7.5, voteCountGte: 500 }),
+        ])
+
+        if (!cancelled) {
+          setGenrePopular(popularData.results)
+          setGenreTopRated(topRatedData.results)
+          setGenreNewReleases(newReleaseData.results)
+          setGenreCriticallyAcclaimed(criticallyAcclaimedData.results)
+        }
       } catch {}
       finally { if (!cancelled) setGenreLoading(false) }
     })()
     return () => { cancelled = true }
-  }, [selectedGenre, mediaType, sortBy])
+  }, [selectedGenre, mediaType])
 
   // Load homepage rails
   useEffect(() => {
-    if (query.trim()) return
+    if (query.trim() || selectedGenre) return // Don't load mixed rails if search or genre is active
     let cancelled = false
 
-    async function loadRails(currentType: "movie" | "tv") {
+    async function loadRails() {
       setRailsLoading(true)
       try {
-        const allProgress = getProgress().filter((p) => p.mediaType === currentType)
-        const allRecent = getRecentlyPlayed().filter((r) => r.mediaType === currentType)
+        // Fetch both movie and TV data for main rails
+        const [
+          trendingMoviesData, popularMoviesData, topRatedMoviesData, nowPlayingMoviesData, upcomingMoviesData, movieGenresData, hindiMoviesData, punjabiMoviesData, trendingMoviesDailyData, newReleaseMoviesData, hiddenGemMoviesData, criticallyAcclaimedMoviesData,
+          trendingTVData, popularTVData, topRatedTVData, onTheAirTVData, airingTodayTVData, tvGenresData, hindiTVData, punjabiTVData, trendingTVDailyData, newReleaseTVData, hiddenGemTVData, criticallyAcclaimedTVData,
+        ] = await Promise.all([
+          tmdb.trendingMovies(), tmdb.popularMovies(), tmdb.topRatedMovies(), tmdb.nowPlayingMovies(), tmdb.upcomingMovies(), tmdb.movieGenres(), tmdb.discoverHindiMovies(), tmdb.discoverPunjabiMovies(), tmdb.trendingMoviesDaily(), tmdb.newReleaseMovies(), tmdb.hiddenGemMovies(), tmdb.criticallyAcclaimedMovies(),
+          tmdb.trendingTV(), tmdb.popularTV(), tmdb.topRatedTV(), tmdb.onTheAirTV(), tmdb.airingTodayTV(), tmdb.tvGenres(), tmdb.discoverHindiTV(), tmdb.discoverPunjabiTV(), tmdb.trendingTVDaily(), tmdb.newReleaseTV(), tmdb.hiddenGemTV(), tmdb.criticallyAcclaimedTV(),
+        ])
+
+        // Combine daily trending for Top 10
+        const combinedTop10 = [...trendingMoviesDailyData.results, ...trendingTVDailyData.results]
+          .sort((a, b) => (b.vote_average || 0) - (a.vote_average || 0)) // Sort by vote average for a better "top" list
+          .slice(0, 10)
+
+        setTop10Items(combinedTop10)
+
+        // Update listRails with both movie and TV data
+        setListRails({
+          trending: [...trendingMoviesData.results, ...trendingTVData.results],
+          popular: [...popularMoviesData.results, ...popularTVData.results],
+          topRated: [...topRatedMoviesData.results, ...topRatedTVData.results],
+          primary: [...nowPlayingMoviesData.results, ...onTheAirTVData.results],
+          secondary: [...upcomingMoviesData.results, ...airingTodayTVData.results],
+        })
+
+        setNewReleases([...newReleaseMoviesData.results, ...newReleaseTVData.results])
+        setHiddenGems([...hiddenGemMoviesData.results, ...hiddenGemTVData.results])
+        setCriticallyAcclaimed([...criticallyAcclaimedMoviesData.results, ...criticallyAcclaimedTVData.results])
+        setIndianRails({
+          hindi: [...hindiMoviesData.results, ...hindiTVData.results],
+          punjabi: [...punjabiMoviesData.results, ...punjabiTVData.results],
+        })
+
+        // Existing logic for continueWatching, recentlyPlayedItems, recommendations, etc.
+        const allProgress = getProgress()
+        const allRecent = getRecentlyPlayed()
 
         const mapHistoryToMedia = (items: typeof allRecent): TMDBMedia[] =>
           items.map((item) => {
             const base = { id: item.tmdbId, overview: "", poster_path: item.poster_path || "", backdrop_path: item.backdrop_path || "", vote_average: 0, genre_ids: item.genreIds }
-            return currentType === "movie"
+            return item.mediaType === "movie"
               ? { ...base, title: item.title, release_date: "", media_type: "movie" } as TMDBMedia
               : { ...base, name: item.title, first_air_date: "", number_of_seasons: 1, media_type: "tv" } as TMDBMedia
           })
@@ -219,7 +322,7 @@ export default function HomePage() {
         allProgress.forEach((p) => {
           const fromRecent = allRecent.find((r) => r.tmdbId === p.tmdbId && r.mediaType === p.mediaType)
           const base = { id: p.tmdbId, overview: "", poster_path: fromRecent?.poster_path || "", backdrop_path: fromRecent?.backdrop_path || "", vote_average: 0, genre_ids: fromRecent?.genreIds }
-          if (currentType === "movie") continueMedia.push({ ...base, title: fromRecent?.title || "Continue watching", release_date: "", media_type: "movie" } as TMDBMedia)
+          if (p.mediaType === "movie") continueMedia.push({ ...base, title: fromRecent?.title || "Continue watching", release_date: "", media_type: "movie" } as TMDBMedia)
           else continueMedia.push({ ...base, name: fromRecent?.title || "Continue watching", first_air_date: "", number_of_seasons: 1, media_type: "tv" } as TMDBMedia)
           continueMetaLocal.push({ season: p.season, episode: p.episode })
         })
@@ -228,26 +331,12 @@ export default function HomePage() {
         allRecent.forEach((item) => item.genreIds?.forEach((g) => { genreCount[g] = (genreCount[g] || 0) + 1 }))
         const topGenreIds = Object.entries(genreCount).sort((a, b) => b[1] - a[1]).slice(0, 3).map(([id]) => Number(id))
 
-        const [trendingData, popularData, topRatedData, primaryData, secondaryData, genresData, hindiData, punjabiData, top10Data, newRelData, hiddenData, criticalData] = await Promise.all([
-          currentType === "movie" ? tmdb.trendingMovies() : tmdb.trendingTV(),
-          currentType === "movie" ? tmdb.popularMovies() : tmdb.popularTV(),
-          currentType === "movie" ? tmdb.topRatedMovies() : tmdb.topRatedTV(),
-          currentType === "movie" ? tmdb.nowPlayingMovies() : tmdb.onTheAirTV(),
-          currentType === "movie" ? tmdb.upcomingMovies() : tmdb.airingTodayTV(),
-          currentType === "movie" ? tmdb.movieGenres() : tmdb.tvGenres(),
-          currentType === "movie" ? tmdb.discoverHindiMovies() : tmdb.discoverHindiTV(),
-          currentType === "movie" ? tmdb.discoverPunjabiMovies() : tmdb.discoverPunjabiTV(),
-          currentType === "movie" ? tmdb.trendingMoviesDaily() : tmdb.trendingTVDaily(),
-          currentType === "movie" ? tmdb.newReleaseMovies() : tmdb.newReleaseTV(),
-          currentType === "movie" ? tmdb.hiddenGemMovies() : tmdb.hiddenGemTV(),
-          currentType === "movie" ? tmdb.criticallyAcclaimedMovies() : tmdb.criticallyAcclaimedTV(),
-        ])
-
         // Mood rails
         const moodPromises = MOODS.filter((m) => m.genres.length > 0).map(async (mood) => {
           try {
-            const data = await tmdb.discoverMovies({ genres: [...mood.genres], sortBy: "popularity.desc", voteAverageGte: 6 })
-            return { id: mood.id, label: mood.label, items: data.results }
+            const movieData = await tmdb.discoverMovies({ genres: [...mood.genres], sortBy: "popularity.desc", voteAverageGte: 6 })
+            const tvData = await tmdb.discoverTV({ genres: [...mood.genres], sortBy: "popularity.desc", voteAverageGte: 6 })
+            return { id: mood.id, label: mood.label, items: [...movieData.results, ...tvData.results] }
           } catch {
             return { id: mood.id, label: mood.label, items: [] }
           }
@@ -258,19 +347,21 @@ export default function HomePage() {
         const seed = allRecent[0] || allProgress[0]
         if (seed) {
           try {
-            const rec = currentType === "movie" ? await tmdb.movieRecommendations(seed.tmdbId) : await tmdb.tvRecommendations(seed.tmdbId)
-            recResults = rec.results
+            const movieRec = await tmdb.movieRecommendations(seed.tmdbId)
+            const tvRec = await tmdb.tvRecommendations(seed.tmdbId)
+            recResults = [...movieRec.results, ...tvRec.results]
           } catch {}
         }
 
         const genreMap = new Map<number, string>()
-        genresData.genres.forEach((g) => genreMap.set(g.id, g.name))
+        ;[...movieGenresData.genres, ...tvGenresData.genres].forEach((g) => genreMap.set(g.id, g.name))
 
         const genreRailsData: { genreId: number; name: string; items: TMDBMedia[] }[] = []
         await Promise.all(topGenreIds.map(async (id) => {
           try {
-            const data = currentType === "movie" ? await tmdb.discoverMoviesByGenre(id) : await tmdb.discoverTVByGenre(id)
-            genreRailsData.push({ genreId: id, name: genreMap.get(id) || "Genre", items: data.results })
+            const movieData = await tmdb.discoverMoviesByGenre(id)
+            const tvData = await tmdb.discoverTVByGenre(id)
+            genreRailsData.push({ genreId: id, name: genreMap.get(id) || "Genre", items: [...movieData.results, ...tvData.results] })
           } catch {}
         }))
 
@@ -278,8 +369,9 @@ export default function HomePage() {
         const pinnedRails: { genreId: number; name: string; items: TMDBMedia[] }[] = []
         await Promise.all(pinned.map(async (id) => {
           try {
-            const data = currentType === "movie" ? await tmdb.discoverMoviesByGenre(id) : await tmdb.discoverTVByGenre(id)
-            pinnedRails.push({ genreId: id, name: genreMap.get(id) || "Genre", items: data.results })
+            const movieData = await tmdb.discoverMoviesByGenre(id)
+            const tvData = await tmdb.discoverTVByGenre(id)
+            pinnedRails.push({ genreId: id, name: genreMap.get(id) || "Genre", items: [...movieData.results, ...tvData.results] })
           } catch {}
         }))
 
@@ -292,9 +384,25 @@ export default function HomePage() {
           } as TMDBMedia)),
         }))
 
+
         const ninetyDaysAgo = Date.now() - 90 * 24 * 60 * 60 * 1000
         const forgotten = allRecent.filter((r) => r.lastWatchedAt < ninetyDaysAgo)
         const forgottenMedia = mapHistoryToMedia(forgotten.slice(0, 10))
+
+        // Load watchlist items
+        const watchlistData = getWatchlist()
+        const watchlistMedia = watchlistData.map((item) => ({
+          id: item.tmdbId,
+          overview: item.overview || "",
+          poster_path: item.poster_path || "",
+          backdrop_path: item.backdrop_path || "",
+          vote_average: item.vote_average || 0,
+          genre_ids: item.genreIds,
+          ...(item.mediaType === "movie"
+            ? { title: item.title, release_date: "", media_type: "movie" as const }
+            : { name: item.title, first_air_date: "", number_of_seasons: 1, media_type: "tv" as const }
+          ),
+        } as TMDBMedia))
 
         if (cancelled) return
 
@@ -302,38 +410,27 @@ export default function HomePage() {
         setContinueMeta(continueMetaLocal)
         setRecentlyPlayedItems(recentMedia)
         setRecommendations(recResults)
-        setListRails({ trending: trendingData.results, popular: popularData.results, topRated: topRatedData.results, primary: primaryData.results, secondary: secondaryData.results })
-        setIndianRails({ hindi: hindiData.results, punjabi: punjabiData.results })
-        setTop10Items(top10Data.results.slice(0, 10))
-        setNewReleases(newRelData.results)
-        setHiddenGems(hiddenData.results)
-        setCriticallyAcclaimed(criticalData.results)
-        setForgottenFavorites(forgottenMedia)
-        setPinnedGenreRails(pinnedRails)
-        setShelfRails(shelfRailsData)
+        setWatchlistItems(watchlistMedia)
         setMoodRails(moodRailsData.filter((r) => r.items.length > 0))
         setGenreRails(genreRailsData.sort((a, b) => {
           const ai = topGenreIds.indexOf(a.genreId)
           const bi = topGenreIds.indexOf(b.genreId)
           return (ai === -1 ? 999 : ai) - (bi === -1 ? 999 : bi)
         }))
+        setPinnedGenreRails(pinnedRails)
+        setShelfRails(shelfRailsData)
+        setForgottenFavorites(forgottenMedia)
+
       } catch (err) {
         console.error("Failed to load homepage rails", err)
       } finally { if (!cancelled) setRailsLoading(false) }
     }
 
-    loadRails(mediaType)
+    if (!query.trim() && !selectedGenre) { // Only load mixed rails on home
+      loadRails()
+    }
     return () => { cancelled = true }
-  }, [mediaType, query])
-
-  // Load watchlist
-  useEffect(() => {
-    const items = getWatchlist().filter((i) => i.mediaType === mediaType)
-    setWatchlistItems(items.map((item) => ({
-      id: item.tmdbId, overview: item.overview || "", poster_path: item.poster_path || "", backdrop_path: item.backdrop_path || "", vote_average: item.vote_average || 0, genre_ids: item.genreIds,
-      ...(item.mediaType === "movie" ? { title: item.title, release_date: item.release_date, media_type: "movie" as const } : { name: item.title, first_air_date: item.first_air_date, number_of_seasons: 1, media_type: "tv" as const }),
-    } as TMDBMedia)))
-  }, [mediaType])
+  }, [query, selectedGenre]) // Removed mediaType and fetchTrending from dependencies
 
   // ML recommendations
   useEffect(() => {
@@ -344,23 +441,45 @@ export default function HomePage() {
         const profile = getUserPreferenceProfile()
         const topGenres = Array.from(profile.genreScores.entries()).sort((a, b) => b[1] - a[1]).slice(0, 3).map(([id]) => id)
         if (topGenres.length === 0) { setMLRecommendations([]); return }
-        const data = mediaType === "movie" ? await tmdb.discoverMoviesByGenre(topGenres[0]) : await tmdb.discoverTVByGenre(topGenres[0])
-        if (!cancelled) setMLRecommendations(rankByPreference(data.results, profile, true).slice(0, 20))
+        const movieData = await tmdb.discoverMoviesByGenre(topGenres[0])
+        const tvData = await tmdb.discoverTVByGenre(topGenres[0])
+        const combinedData = [...movieData.results, ...tvData.results]
+        if (!cancelled) setMLRecommendations(rankByPreference(combinedData, profile, true).slice(0, 20))
       } catch {}
     })()
     return () => { cancelled = true }
-  }, [mediaType])
+  }, []) // Removed mediaType from dependencies
 
   // Surprise me
   const handleSurpriseMe = () => {
-    const wl = getWatchlist()
-    const watched = getAllRatings().filter((r) => r.watchedStatus === "watched")
-    const unwatched = wl.filter((item) => !watched.some((w) => w.tmdbId === item.tmdbId && w.mediaType === item.mediaType))
-    if (unwatched.length === 0) { toast("No unwatched items in your list!"); return }
+    const items = getWatchlist()
+    const allProgress = getProgress()
+    const watched = new Set(
+      allProgress
+        .filter((p) => (p.progress ?? 0) >= 90 || p.currentTime > 5400)
+        .map((p) => `${p.tmdbId}-${p.mediaType}`)
+    )
+    const unwatched = items.filter((item) =>
+      !watched.has(`${item.tmdbId}-${item.mediaType}`)
+    )
+
+    if (unwatched.length === 0) {
+      toast("No unwatched items in your list!")
+      return
+    }
+
     const pick = unwatched[Math.floor(Math.random() * unwatched.length)]
     const media: TMDBMedia = {
-      id: pick.tmdbId, overview: pick.overview || "", poster_path: pick.poster_path || "", backdrop_path: pick.backdrop_path || "", vote_average: pick.vote_average || 0, genre_ids: pick.genreIds,
-      ...(pick.mediaType === "movie" ? { title: pick.title, release_date: "", media_type: "movie" as const } : { name: pick.title, first_air_date: "", number_of_seasons: 1, media_type: "tv" as const }),
+      id: pick.tmdbId,
+      overview: pick.overview || "",
+      poster_path: pick.poster_path || "",
+      backdrop_path: pick.backdrop_path || "",
+      vote_average: pick.vote_average || 0,
+      genre_ids: pick.genreIds,
+      ...(pick.mediaType === "movie"
+        ? { title: pick.title, release_date: "", media_type: "movie" as const }
+        : { name: pick.title, first_air_date: "", number_of_seasons: 1, media_type: "tv" as const }
+      ),
     } as TMDBMedia
     openDetail(media, pick.mediaType)
   }
@@ -368,8 +487,11 @@ export default function HomePage() {
   // Advanced search
   const handleAdvancedSearch = async (params: DiscoverParams) => {
     try {
-      const data = mediaType === "movie" ? await tmdb.discoverMovies(params) : await tmdb.discoverTV(params)
-      let filtered = data.results
+      const movieData = await tmdb.discoverMovies(params)
+      const tvData = await tmdb.discoverTV(params)
+      const combinedData = [...movieData.results, ...tvData.results]
+
+      let filtered = combinedData
       if (alreadyWatchedFilter) {
         const watched = getAllRatings().filter((r) => r.watchedStatus === "watched")
         filtered = filtered.filter((item) => !watched.some((w) => w.tmdbId === item.id))
@@ -388,7 +510,7 @@ export default function HomePage() {
 
   return (
     <div className="min-h-screen bg-[var(--lolflix-bg,#141414)] text-white">
-      <Navbar onSearch={handleQueryChange} searchValue={query} onTypeChange={handleTypeChange} onHomeClick={handleHomeClick} mediaType={mediaType} />
+      <Navbar onSearch={handleQueryChange} searchValue={query} onTypeChange={(type) => setHomeMediaTypeFilter(type)} onHomeClick={handleHomeClick} />
 
       {detailItem && (
         <DetailModal item={detailItem} mediaType={detailType} onClose={() => setDetailItem(null)} />
@@ -423,23 +545,6 @@ export default function HomePage() {
                     )}
                   </AnimatePresence>
                 </div>
-                {selectedGenre && (
-                  <div className="relative" ref={sortDropRef}>
-                    <button onClick={() => setSortOpen(!sortOpen)} className="flex items-center gap-1.5 px-3 py-1 text-xs font-medium bg-[#242424] border border-white/20 text-white hover:border-white/40 rounded-sm transition-colors cursor-pointer">
-                      {SORT_OPTIONS.find((o) => o.value === sortBy)?.label || "Sort"}
-                      <ChevronDown className={`h-3.5 w-3.5 transition-transform duration-150 ${sortOpen ? "rotate-180" : ""}`} />
-                    </button>
-                    <AnimatePresence>
-                      {sortOpen && (
-                        <motion.div initial={{ opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }} transition={{ duration: 0.15 }} className="absolute top-full left-0 mt-1 z-50 bg-[#1a1a1a] border border-white/20 shadow-2xl py-1 min-w-[160px] rounded">
-                          {SORT_OPTIONS.map((opt) => (
-                            <button key={opt.value} onClick={() => { setSortBy(opt.value); setSortOpen(false) }} className={`w-full text-left px-4 py-2 text-sm transition-colors cursor-pointer ${sortBy === opt.value ? "text-white font-semibold bg-white/10" : "text-white/70 hover:bg-white/5"}`}>{opt.label}</button>
-                          ))}
-                        </motion.div>
-                      )}
-                    </AnimatePresence>
-                  </div>
-                )}
               </>
             )}
             <div className="ml-auto"><JoinRoomDialog /></div>
@@ -456,9 +561,18 @@ export default function HomePage() {
 
           {showGenreFilter && !showSearch && (
             <AnimatePresence mode="wait">
-              <motion.div key={`genre-${selectedGenre?.id}-${sortBy}`} initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
-                <h2 className="text-base font-semibold text-white/60 mb-4">{selectedGenre?.name}</h2>
-                <MediaGrid items={genreResults} mediaType={mediaType} isLoading={genreLoading} />
+              <motion.div key={`genre-${selectedGenre?.id}`} initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="space-y-6">
+                <h2 className="text-base font-semibold text-white/60 px-4 md:px-12">{selectedGenre?.name}</h2>
+                {genreLoading && <p className="text-sm text-white/40 px-4 md:px-12">Loading genre content…</p>}
+
+                {genrePopular.length > 0 && <MediaRail title="Popular" items={genrePopular} cardLayout={cardLayout} onDetailOpen={openDetail} />}
+                {genreTopRated.length > 0 && <MediaRail title="Top Rated" items={genreTopRated} cardLayout={cardLayout} onDetailOpen={openDetail} />}
+                {genreNewReleases.length > 0 && <MediaRail title="New Releases" items={genreNewReleases} cardLayout={cardLayout} onDetailOpen={openDetail} />}
+                {genreCriticallyAcclaimed.length > 0 && <MediaRail title="Critically Acclaimed" items={genreCriticallyAcclaimed} cardLayout={cardLayout} onDetailOpen={openDetail} />}
+
+                {!genreLoading && genrePopular.length === 0 && genreTopRated.length === 0 && genreNewReleases.length === 0 && genreCriticallyAcclaimed.length === 0 && (
+                  <p className="text-sm text-white/40 px-4 md:px-12">No content found for this genre.</p>
+                )}
               </motion.div>
             </AnimatePresence>
           )}
@@ -469,7 +583,7 @@ export default function HomePage() {
       {!showSearch && !showGenreFilter && (
         <AnimatePresence mode="wait">
           <motion.div key={`home-${mediaType}`} initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.25 }} className="space-y-6">
-            {listRails.trending.length > 0 && <HeroBanner items={listRails.trending.slice(0, 6)} mediaType={mediaType} onInfoClick={openDetail} />}
+            {listRails.trending.length > 0 && (homeMediaTypeFilter === "all" || listRails.trending.some(item => item.media_type === homeMediaTypeFilter)) && <HeroBanner items={listRails.trending.filter(item => homeMediaTypeFilter === "all" || item.media_type === homeMediaTypeFilter).slice(0, 6)} onInfoClick={openDetail} />}
 
             {/* Filter bar */}
             <div className="px-4 md:px-12 space-y-3 -mt-8 relative z-10">
@@ -535,57 +649,57 @@ export default function HomePage() {
 
             {railsLoading && <p className="text-sm text-white/40 px-4 md:px-12">Loading picks for you…</p>}
 
-            {continueWatching.length > 0 && (
+            {continueWatching.length > 0 && (homeMediaTypeFilter === "all" || continueWatching.some(item => item.media_type === homeMediaTypeFilter)) && (
               <section className="space-y-1">
                 <div className="px-4 md:px-12"><h2 className="text-base md:text-lg font-bold text-[#e5e5e5]">Continue Watching</h2></div>
                 <div className="flex gap-1 md:gap-1.5 overflow-x-auto pb-4 px-4 md:px-12 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-                  {continueWatching.map((item, idx) => (
-                    <MediaPosterCard key={`cw-${mediaType}-${item.id}-${idx}`} item={item} mediaType={mediaType} size="lg" index={idx} season={continueMeta[idx]?.season} episode={continueMeta[idx]?.episode} onDetailOpen={openDetail} />
+                  {continueWatching.filter(item => homeMediaTypeFilter === "all" || item.media_type === homeMediaTypeFilter).map((item, idx) => (
+                    <MediaPosterCard key={`cw-${item.media_type}-${item.id}-${idx}`} item={item} mediaType={item.media_type || "movie"} size="lg" index={idx} season={continueMeta[idx]?.season} episode={continueMeta[idx]?.episode} onDetailOpen={openDetail} />
                   ))}
                 </div>
               </section>
             )}
 
-            {watchlistItems.length > 0 && <MediaRail title="My List" items={watchlistItems} mediaType={mediaType} cardLayout={cardLayout} onDetailOpen={openDetail} />}
+            {watchlistItems.length > 0 && (homeMediaTypeFilter === "all" || watchlistItems.some(item => item.media_type === homeMediaTypeFilter)) && <MediaRail title="My List" items={watchlistItems.filter(item => homeMediaTypeFilter === "all" || item.media_type === homeMediaTypeFilter)} cardLayout={cardLayout} onDetailOpen={openDetail} />}
 
-            {top10Items.length > 0 && <Top10Rail title={`Top 10 ${mediaType === "movie" ? "Movies" : "Shows"} Today`} items={top10Items} mediaType={mediaType} onDetailOpen={openDetail} />}
+            {top10Items.length > 0 && (homeMediaTypeFilter === "all" || top10Items.some(item => item.media_type === homeMediaTypeFilter)) && <Top10Rail title={`Top 10 Today`} items={top10Items.filter(item => homeMediaTypeFilter === "all" || item.media_type === homeMediaTypeFilter)} onDetailOpen={openDetail} />}
 
-            {newReleases.length > 0 && <MediaRail title="New Releases" items={newReleases} mediaType={mediaType} cardLayout={cardLayout} onDetailOpen={openDetail} />}
+            {newReleases.length > 0 && (homeMediaTypeFilter === "all" || newReleases.some(item => item.media_type === homeMediaTypeFilter)) && <MediaRail title="New Releases" items={newReleases.filter(item => homeMediaTypeFilter === "all" || item.media_type === homeMediaTypeFilter)} cardLayout={cardLayout} onDetailOpen={openDetail} />}
 
-            {recentlyPlayedItems.length > 0 && <MediaRail title="Recently Played" items={recentlyPlayedItems} mediaType={mediaType} cardLayout={cardLayout} onDetailOpen={openDetail} />}
-            {recommendations.length > 0 && <MediaRail title="Because you watched..." items={recommendations} mediaType={mediaType} cardLayout={cardLayout} onDetailOpen={openDetail} />}
-            {mlRecommendations.length > 0 && <MediaRail title="Recommended for You" items={mlRecommendations} mediaType={mediaType} cardLayout={cardLayout} onDetailOpen={openDetail} />}
+            {recentlyPlayedItems.length > 0 && (homeMediaTypeFilter === "all" || recentlyPlayedItems.some(item => item.media_type === homeMediaTypeFilter)) && <MediaRail title="Recently Played" items={recentlyPlayedItems.filter(item => homeMediaTypeFilter === "all" || item.media_type === homeMediaTypeFilter)} cardLayout={cardLayout} onDetailOpen={openDetail} />}
+            {recommendations.length > 0 && (homeMediaTypeFilter === "all" || recommendations.some(item => item.media_type === homeMediaTypeFilter)) && <MediaRail title="Because you watched..." items={recommendations.filter(item => homeMediaTypeFilter === "all" || item.media_type === homeMediaTypeFilter)} cardLayout={cardLayout} onDetailOpen={openDetail} />}
+            {mlRecommendations.length > 0 && (homeMediaTypeFilter === "all" || mlRecommendations.some(item => item.media_type === homeMediaTypeFilter)) && <MediaRail title="Recommended for You" items={mlRecommendations.filter(item => homeMediaTypeFilter === "all" || item.media_type === homeMediaTypeFilter)} cardLayout={cardLayout} onDetailOpen={openDetail} />}
 
-            {listRails.trending.length > 0 && <MediaRail title={`Trending ${mediaType === "movie" ? "Movies" : "TV Shows"}`} items={listRails.trending} mediaType={mediaType} cardLayout={cardLayout} onDetailOpen={openDetail} />}
-            {listRails.popular.length > 0 && <MediaRail title="Popular" items={listRails.popular} mediaType={mediaType} cardLayout={cardLayout} onDetailOpen={openDetail} />}
-            {listRails.topRated.length > 0 && <MediaRail title="Top Rated" items={listRails.topRated} mediaType={mediaType} cardLayout={cardLayout} onDetailOpen={openDetail} />}
+            {listRails.trending.length > 0 && (homeMediaTypeFilter === "all" || listRails.trending.some(item => item.media_type === homeMediaTypeFilter)) && <MediaRail title={`Trending`} items={listRails.trending.filter(item => homeMediaTypeFilter === "all" || item.media_type === homeMediaTypeFilter)} cardLayout={cardLayout} onDetailOpen={openDetail} />}
+            {listRails.popular.length > 0 && (homeMediaTypeFilter === "all" || listRails.popular.some(item => item.media_type === homeMediaTypeFilter)) && <MediaRail title="Popular" items={listRails.popular.filter(item => homeMediaTypeFilter === "all" || item.media_type === homeMediaTypeFilter)} cardLayout={cardLayout} onDetailOpen={openDetail} />}
+            {listRails.topRated.length > 0 && (homeMediaTypeFilter === "all" || listRails.topRated.some(item => item.media_type === homeMediaTypeFilter)) && <MediaRail title="Top Rated" items={listRails.topRated.filter(item => homeMediaTypeFilter === "all" || item.media_type === homeMediaTypeFilter)} cardLayout={cardLayout} onDetailOpen={openDetail} />}
 
-            {hiddenGems.length > 0 && <MediaRail title="Hidden Gems" items={hiddenGems} mediaType={mediaType} cardLayout={cardLayout} onDetailOpen={openDetail} />}
-            {criticallyAcclaimed.length > 0 && <MediaRail title="Critically Acclaimed" items={criticallyAcclaimed} mediaType={mediaType} cardLayout={cardLayout} onDetailOpen={openDetail} />}
+            {hiddenGems.length > 0 && (homeMediaTypeFilter === "all" || hiddenGems.some(item => item.media_type === homeMediaTypeFilter)) && <MediaRail title="Hidden Gems" items={hiddenGems.filter(item => homeMediaTypeFilter === "all" || item.media_type === homeMediaTypeFilter)} cardLayout={cardLayout} onDetailOpen={openDetail} />}
+            {criticallyAcclaimed.length > 0 && (homeMediaTypeFilter === "all" || criticallyAcclaimed.some(item => item.media_type === homeMediaTypeFilter)) && <MediaRail title="Critically Acclaimed" items={criticallyAcclaimed.filter(item => homeMediaTypeFilter === "all" || item.media_type === homeMediaTypeFilter)} cardLayout={cardLayout} onDetailOpen={openDetail} />}
 
             {/* Mood section rails */}
-            {moodRails.map((rail) => (
-              <MediaRail key={`mood-${rail.id}`} title={rail.label} items={rail.items} mediaType={mediaType} cardLayout={cardLayout} onDetailOpen={openDetail} />
+            {moodRails.map((rail) => (homeMediaTypeFilter === "all" || rail.items.some(item => item.media_type === homeMediaTypeFilter)) && (
+              <MediaRail key={`mood-${rail.id}`} title={rail.label} items={rail.items.filter(item => homeMediaTypeFilter === "all" || item.media_type === homeMediaTypeFilter)} cardLayout={cardLayout} onDetailOpen={openDetail} />
             ))}
 
-            {listRails.primary.length > 0 && <MediaRail title={mediaType === "movie" ? "Now Playing" : "On The Air"} items={listRails.primary} mediaType={mediaType} cardLayout={cardLayout} onDetailOpen={openDetail} />}
-            {listRails.secondary.length > 0 && <MediaRail title={mediaType === "movie" ? "Upcoming" : "Airing Today"} items={listRails.secondary} mediaType={mediaType} cardLayout={cardLayout} onDetailOpen={openDetail} />}
+            {listRails.primary.length > 0 && (homeMediaTypeFilter === "all" || listRails.primary.some(item => item.media_type === homeMediaTypeFilter)) && <MediaRail title={"Now Playing / On The Air"} items={listRails.primary.filter(item => homeMediaTypeFilter === "all" || item.media_type === homeMediaTypeFilter)} cardLayout={cardLayout} onDetailOpen={openDetail} />}
+            {listRails.secondary.length > 0 && (homeMediaTypeFilter === "all" || listRails.secondary.some(item => item.media_type === homeMediaTypeFilter)) && <MediaRail title={"Upcoming / Airing Today"} items={listRails.secondary.filter(item => homeMediaTypeFilter === "all" || item.media_type === homeMediaTypeFilter)} cardLayout={cardLayout} onDetailOpen={openDetail} />}
 
-            {pinnedGenreRails.map((rail) => (
-              <MediaRail key={`pinned-${rail.genreId}`} title={`📌 ${rail.name}`} items={rail.items} mediaType={mediaType} cardLayout={cardLayout} onDetailOpen={openDetail} />
+            {pinnedGenreRails.map((rail) => (homeMediaTypeFilter === "all" || rail.items.some(item => item.media_type === homeMediaTypeFilter)) && (
+              <MediaRail key={`pinned-${rail.genreId}`} title={`📌 ${rail.name}`} items={rail.items.filter(item => homeMediaTypeFilter === "all" || item.media_type === homeMediaTypeFilter)} cardLayout={cardLayout} onDetailOpen={openDetail} />
             ))}
 
-            {shelfRails.map((rail) => (
-              <MediaRail key={`shelf-${rail.id}`} title={rail.name} items={rail.items} mediaType={mediaType} cardLayout={cardLayout} onDetailOpen={openDetail} />
+            {shelfRails.map((rail) => (homeMediaTypeFilter === "all" || rail.items.some(item => item.media_type === homeMediaTypeFilter)) && (
+              <MediaRail key={`shelf-${rail.id}`} title={rail.name} items={rail.items.filter(item => homeMediaTypeFilter === "all" || item.media_type === homeMediaTypeFilter)} cardLayout={cardLayout} onDetailOpen={openDetail} />
             ))}
 
-            {indianRails.hindi.length > 0 && <MediaRail title={`Hindi ${mediaType === "movie" ? "Movies" : "TV Shows"}`} items={indianRails.hindi} mediaType={mediaType} cardLayout={cardLayout} onDetailOpen={openDetail} />}
-            {indianRails.punjabi.length > 0 && <MediaRail title={`Punjabi ${mediaType === "movie" ? "Movies" : "TV Shows"}`} items={indianRails.punjabi} mediaType={mediaType} cardLayout={cardLayout} onDetailOpen={openDetail} />}
+            {indianRails.hindi.length > 0 && (homeMediaTypeFilter === "all" || indianRails.hindi.some(item => item.media_type === homeMediaTypeFilter)) && <MediaRail title={`Hindi`} items={indianRails.hindi.filter(item => homeMediaTypeFilter === "all" || item.media_type === homeMediaTypeFilter)} cardLayout={cardLayout} onDetailOpen={openDetail} />}
+            {indianRails.punjabi.length > 0 && (homeMediaTypeFilter === "all" || indianRails.punjabi.some(item => item.media_type === homeMediaTypeFilter)) && <MediaRail title={`Punjabi`} items={indianRails.punjabi.filter(item => homeMediaTypeFilter === "all" || item.media_type === homeMediaTypeFilter)} cardLayout={cardLayout} onDetailOpen={openDetail} />}
 
-            {forgottenFavorites.length > 0 && <MediaRail title="Remember These?" items={forgottenFavorites} mediaType={mediaType} cardLayout={cardLayout} onDetailOpen={openDetail} />}
+            {forgottenFavorites.length > 0 && (homeMediaTypeFilter === "all" || forgottenFavorites.some(item => item.media_type === homeMediaTypeFilter)) && <MediaRail title="Remember These?" items={forgottenFavorites.filter(item => homeMediaTypeFilter === "all" || item.media_type === homeMediaTypeFilter)} cardLayout={cardLayout} onDetailOpen={openDetail} />}
 
-            {genreRails.map((rail) => (
-              <MediaRail key={rail.genreId} title={rail.name} items={rail.items} mediaType={mediaType} cardLayout={cardLayout} onDetailOpen={openDetail} />
+            {genreRails.map((rail) => (homeMediaTypeFilter === "all" || rail.items.some(item => item.media_type === homeMediaTypeFilter)) && (
+              <MediaRail key={rail.genreId} title={rail.name} items={rail.items.filter(item => homeMediaTypeFilter === "all" || item.media_type === homeMediaTypeFilter)} cardLayout={cardLayout} onDetailOpen={openDetail} />
             ))}
 
             <div className="h-16" />

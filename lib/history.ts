@@ -21,6 +21,7 @@ export interface ProgressItem {
   season?: number
   episode?: number
   currentTime: number
+  progress?: number
   updatedAt: number
 }
 

@@ -7,6 +7,7 @@ import { motion, AnimatePresence } from "framer-motion"
 import YouTube from "react-youtube"
 import { Play, Info, Volume2, VolumeX } from "lucide-react"
 import { tmdb } from "@/lib/tmdb"
+import { useTVMode } from "@/contexts/TVModeContext"
 import type { TMDBMedia, TMDBMovie } from "@/types"
 
 function isMovie(item: TMDBMedia): item is TMDBMovie {
@@ -15,18 +16,18 @@ function isMovie(item: TMDBMedia): item is TMDBMovie {
 
 interface HeroBannerProps {
   items: TMDBMedia[]
-  mediaType: "movie" | "tv"
   onInfoClick?: (item: TMDBMedia, mediaType: "movie" | "tv") => void
 }
 
 const ROTATE_INTERVAL = 15000 // Increased for video playback
 
-export function HeroBanner({ items, mediaType, onInfoClick }: HeroBannerProps) {
+export function HeroBanner({ items, onInfoClick }: HeroBannerProps) {
   const router = useRouter()
+  const { isTVMode } = useTVMode()
   const [activeIndex, setActiveIndex] = useState(0)
   const [trailerKey, setTrailerKey] = useState<string | null>(null)
   const [isMuted, setIsMuted] = useState(true)
-  const playerRef = useRef<any>(null)
+  const playerRef = useRef<{ mute: () => void; unMute: () => void; playVideo: () => void } | null>(null)
 
   const heroItems = items.slice(0, 6).filter((i) => i.backdrop_path)
 
@@ -50,7 +51,7 @@ export function HeroBanner({ items, mediaType, onInfoClick }: HeroBannerProps) {
       setTrailerKey(null)
       try {
         const data =
-          mediaType === "movie"
+          current.media_type || (isMovie(current) ? "movie" : "tv") === "movie"
             ? await tmdb.movieVideos(current.id)
             : await tmdb.tvVideos(current.id)
 
@@ -75,7 +76,7 @@ export function HeroBanner({ items, mediaType, onInfoClick }: HeroBannerProps) {
     return () => {
       isCancelled = true
     }
-  }, [current, mediaType])
+  }, [current]) // Removed mediaType from dependencies
 
   if (heroItems.length === 0) return null
 
@@ -86,14 +87,14 @@ export function HeroBanner({ items, mediaType, onInfoClick }: HeroBannerProps) {
     (current.overview && current.overview.length > 220 ? "…" : "")
 
   const handlePlay = () => {
-    router.push(`/watch/new?tmdb=${current.id}&type=${mediaType}`)
+    router.push(`/watch/new?tmdb=${current.id}&type=${current.media_type || (isMovie(current) ? "movie" : "tv")}`)
   }
 
   const handleInfo = () => {
-    onInfoClick?.(current, mediaType)
+    onInfoClick?.(current, current.media_type || (isMovie(current) ? "movie" : "tv"))
   }
 
-  const onPlayerReady = (event: any) => {
+  const onPlayerReady = (event: { target: { mute: () => void; unMute: () => void; playVideo: () => void } }) => {
     playerRef.current = event.target
     if (isMuted) {
       event.target.mute()
@@ -103,7 +104,7 @@ export function HeroBanner({ items, mediaType, onInfoClick }: HeroBannerProps) {
     event.target.playVideo()
   }
 
-  const onPlayerStateChange = (event: any) => {
+  const onPlayerStateChange = (event: { data: number }) => {
     if (event.data === 0) { // Video ended
       advance()
     }
@@ -215,20 +216,24 @@ export function HeroBanner({ items, mediaType, onInfoClick }: HeroBannerProps) {
             )}
 
             <div className="flex items-center gap-3 pt-2">
-              <button
+              <motion.button
                 onClick={handlePlay}
-                className="flex items-center gap-2 bg-white text-black font-bold text-base px-6 py-2.5 md:px-8 md:py-3 rounded cursor-pointer hover:bg-white/80 active:scale-[0.97] transition-all"
+                whileHover={{ scale: 1.05 }}
+                whileTap={{ scale: 0.97 }}
+                className={`flex items-center gap-2 bg-white text-black font-bold text-base px-6 py-2.5 md:px-8 md:py-3 rounded cursor-pointer hover:bg-white/80 transition-colors ${isTVMode ? "tv-button-lg" : ""}`}
               >
-                <Play className="h-5 w-5 md:h-6 md:w-6 fill-black" />
+                <Play className={`h-5 w-5 md:h-6 md:w-6 fill-black ${isTVMode ? "h-7 w-7" : ""}`} />
                 Play
-              </button>
-              <button
+              </motion.button>
+              <motion.button
                 onClick={handleInfo}
-                className="flex items-center gap-2 bg-[#6d6d6e]/70 text-white font-bold text-base px-6 py-2.5 md:px-8 md:py-3 rounded cursor-pointer hover:bg-[#6d6d6e]/50 active:scale-[0.97] transition-all"
+                whileHover={{ scale: 1.05 }}
+                whileTap={{ scale: 0.97 }}
+                className={`flex items-center gap-2 bg-[#6d6d6e]/70 text-white font-bold text-base px-6 py-2.5 md:px-8 md:py-3 rounded cursor-pointer hover:bg-[#6d6d6e]/50 transition-colors ${isTVMode ? "tv-button-lg" : ""}`}
               >
-                <Info className="h-5 w-5 md:h-6 md:w-6" />
+                <Info className={`h-5 w-5 md:h-6 md:w-6 ${isTVMode ? "h-7 w-7" : ""}`} />
                 More Info
-              </button>
+              </motion.button>
             </div>
           </div>
         </motion.div>

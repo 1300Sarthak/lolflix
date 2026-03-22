@@ -9,7 +9,10 @@ import {
   ZapOff,
   Maximize,
   Keyboard,
+  MonitorPlay,
+  Download,
 } from "lucide-react"
+import { loadSettings } from "@/lib/settings"
 import type { PlayerEvent } from "@/types"
 
 interface VidkingPlayerProps {
@@ -25,18 +28,28 @@ interface VidkingPlayerProps {
 
 const SPEED_OPTIONS = [0.5, 0.75, 1, 1.25, 1.5, 2, 2.5, 3]
 
+const SANDBOX_STRICT = "allow-scripts allow-same-origin allow-forms allow-presentation"
+
 const FALLBACK_SOURCES = [
-  { name: "vidking", buildUrl: (id: number, type: string, s: number, e: number, color: string, autoplay: boolean) =>
+  { name: "vidking", sandbox: SANDBOX_STRICT, buildUrl: (id: number, type: string, s: number, e: number, color: string, autoplay: boolean) =>
     type === "movie"
       ? `https://www.vidking.net/embed/movie/${id}?color=${color}&autoPlay=${autoplay}`
       : `https://www.vidking.net/embed/tv/${id}/${s}/${e}?color=${color}&autoPlay=${autoplay}&nextEpisode=true&episodeSelector=true`
   },
-  { name: "vidsrc", buildUrl: (id: number, type: string, s: number, e: number) =>
+  { name: "vidfast", sandbox: null as string | null, buildUrl: (id: number, type: string, s: number, e: number) =>
     type === "movie"
-      ? `https://vidsrc.to/embed/movie/${id}`
-      : `https://vidsrc.to/embed/tv/${id}/${s}/${e}`
+      ? `https://vidfast.pro/movie/${id}?autoPlay=true`
+      : `https://vidfast.pro/tv/${id}/${s}/${e}?autoPlay=true&nextButton=true&autoNext=true`
+  },
+  { name: "vidsrc", sandbox: SANDBOX_STRICT, buildUrl: (id: number, type: string, s: number, e: number) =>
+    type === "movie"
+      ? `https://vidsrc.cc/v2/embed/movie/${id}`
+      : `https://vidsrc.cc/v2/embed/tv/${id}/${s}/${e}`
   },
 ]
+
+// Number of initial clicks on the iframe to absorb (ad triggers)
+const CLICKS_TO_ABSORB = 2
 
 export function VidkingPlayer({
   tmdbId,
@@ -56,9 +69,31 @@ export function VidkingPlayer({
   const [inPiP, setInPiP] = useState(false)
   const [showShortcuts, setShowShortcuts] = useState(false)
   const [sourceIndex, setSourceIndex] = useState(0)
+  const [showSourceMenu, setShowSourceMenu] = useState(false)
+  const [showDownload, setShowDownload] = useState(false)
+  const [clickShieldActive, setClickShieldActive] = useState(true)
+  const clickCountRef = useRef(0)
   const speedMenuRef = useRef<HTMLDivElement>(null)
+  const sourceMenuRef = useRef<HTMLDivElement>(null)
   const pipRef = useRef(false)
   const fallbackTimerRef = useRef<NodeJS.Timeout | null>(null)
+
+  // Reset click shield when source changes
+  useEffect(() => {
+    clickCountRef.current = 0
+    setClickShieldActive(true)
+  }, [sourceIndex])
+
+  // Click shield handler — absorbs first N clicks to eat ad triggers,
+  // then removes itself so the real player controls work
+  const handleShieldClick = useCallback((e: React.MouseEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    clickCountRef.current += 1
+    if (clickCountRef.current >= CLICKS_TO_ABSORB) {
+      setClickShieldActive(false)
+    }
+  }, [])
 
   // Block popups/ads at the page level
   useEffect(() => {
@@ -69,8 +104,25 @@ export function VidkingPlayer({
       }
       return null
     }
+
+    // Detect and refocus when iframe tries to open popup/new tab
+    const handleBlur = () => {
+      if (pipRef.current) return
+      setTimeout(() => window.focus(), 50)
+    }
+    window.addEventListener("blur", handleBlur)
+
+    // Block beforeunload navigations triggered by ad scripts
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      if (pipRef.current) return
+      e.preventDefault()
+    }
+    window.addEventListener("beforeunload", handleBeforeUnload)
+
     return () => {
       window.open = origOpen
+      window.removeEventListener("blur", handleBlur)
+      window.removeEventListener("beforeunload", handleBeforeUnload)
     }
   }, [])
 
@@ -79,17 +131,19 @@ export function VidkingPlayer({
       if (speedMenuRef.current && !speedMenuRef.current.contains(e.target as Node)) {
         setShowSpeedMenu(false)
       }
+      if (sourceMenuRef.current && !sourceMenuRef.current.contains(e.target as Node)) {
+        setShowSourceMenu(false)
+      }
     }
-    if (showSpeedMenu) {
+    if (showSpeedMenu || showSourceMenu) {
       document.addEventListener("mousedown", handleClickOutside)
       return () => document.removeEventListener("mousedown", handleClickOutside)
     }
-  }, [showSpeedMenu])
+  }, [showSpeedMenu, showSourceMenu])
 
   // Keyboard shortcuts
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      // Ignore if typing in an input
       if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) {
         return
       }
@@ -148,9 +202,11 @@ export function VidkingPlayer({
     return () => window.removeEventListener("keydown", handleKeyDown)
   }, [])
 
-  // Multi-source fallback: if no PLAYER_EVENT within 15s, try next source
+  // Multi-source fallback: if no PLAYER_EVENT within 15s, try next source (only if enabled)
   useEffect(() => {
     if (fallbackTimerRef.current) clearTimeout(fallbackTimerRef.current)
+    const { autoSourceSwitch } = loadSettings()
+    if (!autoSourceSwitch) return
     fallbackTimerRef.current = setTimeout(() => {
       if (sourceIndex < FALLBACK_SOURCES.length - 1) {
         setSourceIndex((prev) => prev + 1)
@@ -167,6 +223,8 @@ export function VidkingPlayer({
         const parsed = JSON.parse(event.data)
         if (parsed.type === "PLAYER_EVENT") {
           if (fallbackTimerRef.current) clearTimeout(fallbackTimerRef.current)
+          // Player is working — drop the shield if still up
+          setClickShieldActive(false)
           onProgressUpdate?.(parsed.data)
         }
       } catch {}
@@ -184,6 +242,10 @@ export function VidkingPlayer({
   if (startProgress && startProgress > 0) {
     src += `${src.includes("?") ? "&" : "?"}progress=${Math.floor(startProgress)}`
   }
+
+  const downloadUrl = mediaType === "movie"
+    ? `https://vidvault.ru/movie/${tmdbId}`
+    : `https://vidvault.ru/tv/${tmdbId}/${season}/${episode}`
 
   const handleSkipRecap = () => {
     iframeRef.current?.contentWindow?.postMessage(JSON.stringify({ type: "SEEK", offset: 60 }), "*")
@@ -289,10 +351,18 @@ export function VidkingPlayer({
           className="absolute inset-0 w-full h-full"
           allowFullScreen
           allow="autoplay; fullscreen; picture-in-picture; encrypted-media; web-share; accelerometer; gyroscope"
-          sandbox="allow-scripts allow-same-origin allow-forms allow-presentation allow-popups-to-escape-sandbox"
+          {...(currentSource.sandbox ? { sandbox: currentSource.sandbox } : {})}
           referrerPolicy="origin"
           title="Video Player"
         />
+
+        {/* Click shield — sits on top of iframe, absorbs first N clicks (ad triggers) */}
+        {clickShieldActive && (
+          <div
+            className="absolute inset-0 z-10 cursor-pointer"
+            onClick={handleShieldClick}
+          />
+        )}
 
         {/* Keyboard shortcuts overlay */}
         {showShortcuts && (
@@ -312,11 +382,11 @@ export function VidkingPlayer({
                 <div className="text-white">Fullscreen</div>
                 <div className="text-white/60">M</div>
                 <div className="text-white">Mute</div>
-                <div className="text-white/60">← / J</div>
+                <div className="text-white/60">&larr; / J</div>
                 <div className="text-white">Seek -10s</div>
-                <div className="text-white/60">→ / L</div>
+                <div className="text-white/60">&rarr; / L</div>
                 <div className="text-white">Seek +10s</div>
-                <div className="text-white/60">↑ / ↓</div>
+                <div className="text-white/60">&uarr; / &darr;</div>
                 <div className="text-white">Volume Up/Down</div>
                 <div className="text-white/60">?</div>
                 <div className="text-white">Show this help</div>
@@ -336,7 +406,7 @@ export function VidkingPlayer({
         <div className="flex items-center gap-1">
           <button
             onClick={() => setAutoplayOn(!autoplayOn)}
-            className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs font-medium transition-colors duration-150 cursor-pointer \${
+            className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs font-medium transition-colors duration-150 cursor-pointer ${
               autoplayOn
                 ? "text-[#E50914] bg-[#E50914]/10"
                 : "text-white/50 hover:text-white/70 hover:bg-white/5"
@@ -378,10 +448,50 @@ export function VidkingPlayer({
         </div>
 
         <div className="flex items-center gap-1">
+          {/* Download button */}
+          <button
+            onClick={() => setShowDownload(!showDownload)}
+            className="flex items-center gap-1 px-2.5 py-1.5 rounded-md text-xs font-medium transition-colors duration-150 cursor-pointer text-white/50 hover:text-white/70 hover:bg-white/5"
+            aria-label="Download"
+          >
+            <Download className="h-3.5 w-3.5" />
+            Download
+          </button>
+
+          {/* Source selector */}
+          <div className="relative" ref={sourceMenuRef}>
+            <button
+              onClick={() => setShowSourceMenu(!showSourceMenu)}
+              className="flex items-center gap-1 px-2.5 py-1.5 rounded-md text-xs font-medium transition-colors duration-150 cursor-pointer text-white/50 hover:text-white/70 hover:bg-white/5"
+              aria-label="Switch source"
+            >
+              <MonitorPlay className="h-3.5 w-3.5" />
+              {currentSource.name}
+              <ChevronDown className={`h-3 w-3 transition-transform duration-150 ${showSourceMenu ? "rotate-180" : ""}`} />
+            </button>
+            {showSourceMenu && (
+              <div className="absolute bottom-full right-0 mb-1.5 bg-[#1a1a1a] rounded-lg border border-white/10 py-1 min-w-[100px] shadow-xl z-30">
+                {FALLBACK_SOURCES.map((source, idx) => (
+                  <button
+                    key={source.name}
+                    onClick={() => { setSourceIndex(idx); setShowSourceMenu(false) }}
+                    className={`w-full px-3 py-1.5 text-xs text-left transition-colors cursor-pointer ${
+                      sourceIndex === idx
+                        ? "text-[#E50914] bg-[#E50914]/10 font-semibold"
+                        : "text-white/70 hover:text-white hover:bg-white/5"
+                    }`}
+                  >
+                    {source.name}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+
           <div className="relative" ref={speedMenuRef}>
             <button
               onClick={() => setShowSpeedMenu(!showSpeedMenu)}
-              className={`flex items-center gap-1 px-2.5 py-1.5 rounded-md text-xs font-medium transition-colors duration-150 cursor-pointer \${
+              className={`flex items-center gap-1 px-2.5 py-1.5 rounded-md text-xs font-medium transition-colors duration-150 cursor-pointer ${
                 currentSpeed !== 1
                   ? "text-[#E50914] bg-[#E50914]/10"
                   : "text-white/50 hover:text-white/70 hover:bg-white/5"
@@ -389,7 +499,7 @@ export function VidkingPlayer({
               aria-label="Playback speed"
             >
               {currentSpeed}x
-              <ChevronDown className={`h-3 w-3 transition-transform duration-150 \${showSpeedMenu ? "rotate-180" : ""}`} />
+              <ChevronDown className={`h-3 w-3 transition-transform duration-150 ${showSpeedMenu ? "rotate-180" : ""}`} />
             </button>
             {showSpeedMenu && (
               <div className="absolute bottom-full right-0 mb-1.5 bg-[#1a1a1a] rounded-lg border border-white/10 py-1 min-w-[72px] shadow-xl z-30">
@@ -397,7 +507,7 @@ export function VidkingPlayer({
                   <button
                     key={s}
                     onClick={() => handleSpeedChange(s)}
-                    className={`w-full px-3 py-1.5 text-xs text-left transition-colors cursor-pointer \${
+                    className={`w-full px-3 py-1.5 text-xs text-left transition-colors cursor-pointer ${
                       currentSpeed === s
                         ? "text-[#E50914] bg-[#E50914]/10 font-semibold"
                         : "text-white/70 hover:text-white hover:bg-white/5"
@@ -428,6 +538,30 @@ export function VidkingPlayer({
           </button>
         </div>
       </div>
+
+      {/* Download overlay */}
+      {showDownload && (
+        <div className="fixed inset-0 z-[200] bg-black/90 flex flex-col">
+          <div className="flex items-center justify-between px-4 py-3 bg-[#0c0c0c] border-b border-white/10">
+            <span className="text-sm font-medium text-white">Download via VidVault</span>
+            <button
+              onClick={() => setShowDownload(false)}
+              className="text-white/60 hover:text-white text-sm px-3 py-1 bg-white/10 rounded cursor-pointer hover:bg-white/20 transition-colors"
+            >
+              Close
+            </button>
+          </div>
+          <div className="flex-1 relative">
+            <iframe
+              src={downloadUrl}
+              className="w-full h-full border-0"
+              sandbox="allow-scripts allow-same-origin allow-forms allow-presentation allow-downloads"
+              referrerPolicy="origin"
+              title="Download"
+            />
+          </div>
+        </div>
+      )}
     </div>
   )
 }

@@ -67,3 +67,69 @@
     scroll-behavior: auto !important;
   }
 }
+
+/* Smooth scrolling */
+html {
+  scroll-behavior: smooth;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+}
+
+/* Better focus states */
+*:focus-visible {
+  outline: 2px solid #E50914;
+  outline-offset: 2px;
+}
+
+/* TV Mode Styles */
+[data-tv-mode="true"] {
+  font-size: 18px;
+}
+
+[data-tv-mode="true"] .tv-focus-ring {
+  outline: 4px solid white;
+  outline-offset: 4px;
+  box-shadow: 0 0 20px rgba(255, 255, 255, 0.5);
+}
+
+[data-tv-mode="true"] .tv-card {
+  transform: scale(1.15);
+  transition: transform 0.2s ease-out;
+}
+
+[data-tv-mode="true"] .tv-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: 1.5rem;
+  padding: 1rem 0;
+}
+
+[data-tv-mode="true"] .tv-text-lg {
+  font-size: 1.5rem;
+}
+
+[data-tv-mode="true"] .tv-button-lg {
+  padding: 1rem 2rem;
+  font-size: 1.25rem;
+}
+
+/* Shimmer loading animation */
+@keyframes shimmer {
+  0% { background-position: -1000px 0; }
+  100% { background-position: 1000px 0; }
+}
+
+.shimmer {
+  animation: shimmer 2s infinite linear;
+  background: linear-gradient(
+    to right,
+    rgba(255, 255, 255, 0.05) 0%,
+    rgba(255, 255, 255, 0.1) 50%,
+    rgba(255, 255, 255, 0.05) 100%
+  );
+  background-size: 1000px 100%;
+}

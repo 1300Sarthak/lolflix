@@ -4,18 +4,18 @@ import { useState, useEffect, useRef } from "react"
 import Link from "next/link"
 import Image from "next/image"
 import { usePathname } from "next/navigation"
-import { Search, X, BarChart3, Clock, List } from "lucide-react"
+import { Search, X, BarChart3, Clock, List, Tv } from "lucide-react"
 import { Logo } from "@/components/Logo"
 import { SettingsDropdown } from "@/components/SettingsDropdown"
+import { useTVMode } from "@/contexts/TVModeContext"
 import { getRecentlyPlayed } from "@/lib/history"
 import { tmdb } from "@/lib/tmdb"
 
 interface NavbarProps {
   onSearch?: (query: string) => void
   searchValue?: string
-  onTypeChange?: (type: "movie" | "tv") => void
+  onTypeChange?: (type: "movie" | "tv" | "all") => void // Added "all" type
   onHomeClick?: () => void
-  mediaType?: "movie" | "tv"
 }
 
 export function Navbar({
@@ -23,7 +23,6 @@ export function Navbar({
   searchValue = "",
   onTypeChange,
   onHomeClick,
-  mediaType = "movie",
 }: NavbarProps) {
   const [scrolled, setScrolled] = useState(false)
   const [searchOpen, setSearchOpen] = useState(false)
@@ -36,6 +35,9 @@ export function Navbar({
   const isWatchlist = pathname?.startsWith("/watchlist")
   const isSubPage = isWatch || isStats || isWatchlist
   const searchContainerRef = useRef<HTMLDivElement>(null)
+
+  const [currentMediaTypeFilter, setCurrentMediaTypeFilter] = useState<"movie" | "tv" | "all">("all")
+  const { isTVMode, toggleTVMode } = useTVMode()
 
   useEffect(() => {
     const handleScroll = () => setScrolled(window.scrollY > 10)
@@ -67,6 +69,22 @@ export function Navbar({
   const handleSearchChange = (val: string) => { setLocalQuery(val); onSearch?.(val) }
   const handleSearchClose = () => { setSearchOpen(false); setSearchFocused(false); setLocalQuery(""); onSearch?.("") }
 
+  const handleHomeButtonClick = () => {
+    setCurrentMediaTypeFilter("all")
+    onHomeClick?.()
+    onTypeChange?.("all") // Notify parent about the filter change
+  }
+
+  const handleMovieButtonClick = () => {
+    setCurrentMediaTypeFilter("movie")
+    onTypeChange?.("movie")
+  }
+
+  const handleTvButtonClick = () => {
+    setCurrentMediaTypeFilter("tv")
+    onTypeChange?.("tv")
+  }
+
   const showRecent = searchFocused && !localQuery && recentItems.length > 0
 
   return (
@@ -76,9 +94,9 @@ export function Navbar({
 
         {!isSubPage && (
           <nav className="hidden md:flex items-center gap-5 mr-auto">
-            <button onClick={onHomeClick} className="text-sm font-medium text-white/90 hover:text-white/60 transition-colors cursor-pointer">Home</button>
-            <button onClick={() => onTypeChange?.("tv")} className={`text-sm font-medium transition-colors cursor-pointer ${mediaType === "tv" ? "text-white font-semibold" : "text-white/70 hover:text-white/50"}`}>TV Shows</button>
-            <button onClick={() => onTypeChange?.("movie")} className={`text-sm font-medium transition-colors cursor-pointer ${mediaType === "movie" ? "text-white font-semibold" : "text-white/70 hover:text-white/50"}`}>Movies</button>
+            <button onClick={handleHomeButtonClick} className={`text-sm font-medium transition-colors cursor-pointer ${currentMediaTypeFilter === "all" ? "text-white font-semibold" : "text-white/70 hover:text-white/50"}`}>Home</button>
+            <button onClick={handleTvButtonClick} className={`text-sm font-medium transition-colors cursor-pointer ${currentMediaTypeFilter === "tv" ? "text-white font-semibold" : "text-white/70 hover:text-white/50"}`}>TV Shows</button>
+            <button onClick={handleMovieButtonClick} className={`text-sm font-medium transition-colors cursor-pointer ${currentMediaTypeFilter === "movie" ? "text-white font-semibold" : "text-white/70 hover:text-white/50"}`}>Movies</button>
             <Link href="/watchlist" className="text-sm font-medium text-white/70 hover:text-white/50 transition-colors">My List</Link>
           </nav>
         )}
@@ -131,6 +149,14 @@ export function Navbar({
 
         <Link href="/watchlist" className="md:hidden p-2 text-white/80 hover:text-white transition-colors" title="My List"><List className="h-5 w-5" /></Link>
         <Link href="/stats" className="hidden md:flex p-2 text-white/80 hover:text-white transition-colors" title="Stats"><BarChart3 className="h-5 w-5" /></Link>
+        <button
+          onClick={toggleTVMode}
+          className={`p-2 transition-colors ${isTVMode ? "text-[#E50914]" : "text-white/80 hover:text-white"}`}
+          title={isTVMode ? "Exit TV Mode" : "Enter TV Mode"}
+          aria-label={isTVMode ? "Exit TV Mode" : "Enter TV Mode"}
+        >
+          <Tv className="h-5 w-5" />
+        </button>
         <SettingsDropdown />
       </div>
 
