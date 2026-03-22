@@ -1,15 +1,11 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  output: "export",
   reactStrictMode: true,
   images: {
-    remotePatterns: [
-      {
-        protocol: "https",
-        hostname: "image.tmdb.org",
-        pathname: "/t/p/**",
-      },
-    ],
+    unoptimized: true,
   },
+  trailingSlash: true,
 };
 
 export default nextConfig;

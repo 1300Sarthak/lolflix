@@ -36,7 +36,7 @@ export function RoomModal() {
       params.set("type", type)
       if (season) params.set("s", season)
       if (episode) params.set("e", episode)
-      router.replace(`/watch/${roomId}?${params.toString()}`)
+      router.replace(`/watch?room=${roomId}&${params.toString()}`)
       return
     }
 
@@ -57,7 +57,7 @@ export function RoomModal() {
     params.set("type", type)
     if (season) params.set("s", season)
     if (episode) params.set("e", episode)
-    saveNameAndGo(`/watch/${roomId}?${params.toString()}`)
+    saveNameAndGo(`/watch?room=${roomId}&${params.toString()}`)
   }
 
   const handleWatchSolo = () => {
@@ -67,12 +67,12 @@ export function RoomModal() {
     params.set("type", type)
     if (season) params.set("s", season)
     if (episode) params.set("e", episode)
-    router.push(`/watch/${roomId}?${params.toString()}`)
+    router.push(`/watch?room=${roomId}&${params.toString()}`)
   }
 
   const handleJoin = () => {
     if (!roomCode.trim()) return
-    saveNameAndGo(`/watch/${roomCode.trim()}`)
+    saveNameAndGo(`/watch?room=${roomCode.trim()}`)
   }
 
   if (!settings.partyMode) return null

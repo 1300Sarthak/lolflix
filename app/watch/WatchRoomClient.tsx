@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useEffect, useCallback, useRef } from "react"
-import { useParams, useSearchParams } from "next/navigation"
+import { useSearchParams } from "next/navigation"
 import Link from "next/link"
 import { motion } from "framer-motion"
 import { ArrowLeft, MessageCircle, X } from "lucide-react"
@@ -23,9 +23,8 @@ import type { AppSettings } from "@/lib/settings"
 const SYNC_TOLERANCE = 3
 
 export default function WatchRoomPage() {
-  const params = useParams()
   const searchParams = useSearchParams()
-  const roomId = params.roomId as string
+  const roomId = searchParams.get("room") || ""
   const urlTmdbId = Number(searchParams.get("tmdb") || 0)
   const urlMediaType = (searchParams.get("type") || "movie") as "movie" | "tv"
   const initialSeason = Number(searchParams.get("season") || searchParams.get("s") || 1)
@@ -109,7 +108,7 @@ export default function WatchRoomPage() {
   }, [tmdbId, mediaType, mediaInfo])
 
   useEffect(() => {
-    if (!userName || socketInitRef.current || !settings.partyMode || !hasSocketServer()) return
+    if (!userName || !roomId || socketInitRef.current || !settings.partyMode || !hasSocketServer()) return
     socketInitRef.current = true
 
     const socket = getSocket()
