@@ -2,7 +2,7 @@
 
 ### A Netflix-Style Streaming Discovery & Playback Platform
 
-> **Live at: [https://1300sarthak.github.io/lolflix/](https://1300sarthak.github.io/lolflix/)**
+> **Live at: [https://lolflix-seven.vercel.app/](https://lolflix-seven.vercel.app/)**
 
 ---
 
